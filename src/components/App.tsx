@@ -700,6 +700,36 @@ export default class App extends React.Component<any, AppState> {
     });
   }
 
+  onLevelChange = (level: number) => {
+    const { mapStyle, selectedLayerIndex } = this.state;
+
+    const clonedStyle = cloneDeep(mapStyle);
+    const layerToUpdate = clonedStyle.layers[selectedLayerIndex];
+
+
+    console.log('onLevelChange', layerToUpdate);
+    if ('filter' in layerToUpdate && layerToUpdate.filter && Array.isArray(layerToUpdate.filter) && layerToUpdate.filter.length > 1){
+      layerToUpdate.filter = [
+        'all',
+        (layerToUpdate.filter as any)[1],
+        [
+          'any',
+          ['==', ['get', 'level'], level.toString()],
+          [
+            'all',
+            ['has', 'min_level'],
+            ['has', 'max_level'],
+            ['>=', level, ['get', 'min_level']],
+            ['<=', level, ['get', 'max_level']]
+          ]
+        ]
+      ];
+
+      console.log('update style', clonedStyle)
+      this.onStyleChanged(clonedStyle);
+    }
+  };
+
   mapRenderer() {
     const {mapStyle, dirtyMapStyle} = this.state;
 
@@ -731,6 +761,7 @@ export default class App extends React.Component<any, AppState> {
     } else {
       mapElement = <MapMaplibreGl {...mapProps}
         onChange={this.onMapChange}
+        onLevelChange={this.onLevelChange}
         options={this.state.maplibreGlDebugOptions}
         inspectModeEnabled={this.state.mapState === "inspect"}
         highlightedLayer={this.state.mapStyle.layers[this.state.selectedLayerIndex]}

@@ -9,6 +9,7 @@ import MapMaplibreGlLayerPopup from './MapMaplibreGlLayerPopup'
 import MapMaplibreGlFeaturePropertyPopup, { InspectFeature } from './MapMaplibreGlFeaturePropertyPopup'
 import Color from 'color'
 import ZoomControl from '../libs/zoomcontrol'
+import LevelSelector from '../libs/levelselector'
 import { HighlightedLayer, colorHighlightedLayer } from '../libs/highlight'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import '../maplibregl.css'
@@ -55,6 +56,7 @@ function buildInspectStyle(originalMapStyle: StyleSpecification, coloredLayers: 
 type MapMaplibreGlProps = {
   onDataChange?(event: {map: Map | null}): unknown
   onLayerSelect(...args: unknown[]): unknown
+  onLevelChange(level: number): void;
   mapStyle: StyleSpecification
   inspectModeEnabled: boolean
   highlightedLayer?: HighlightedLayer
@@ -167,6 +169,11 @@ export default class MapMaplibreGl extends React.Component<MapMaplibreGlProps, M
 
     const zoomControl = new ZoomControl;
     map.addControl(zoomControl, 'top-right');
+
+    const levelSelector = new LevelSelector;
+    map.addControl(levelSelector, 'bottom-right');
+
+    levelSelector.onLevelChange(this.props.onLevelChange);
 
     const nav = new MapLibreGl.NavigationControl({visualizePitch:true});
     map.addControl(nav, 'top-right');
