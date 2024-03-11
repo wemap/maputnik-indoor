@@ -3,8 +3,9 @@ import { Map } from 'maplibre-gl';
 export default class LevelSelector {
   _map: Map | undefined = undefined;
   _container: HTMLDivElement | undefined = undefined;
-  _inputEl: HTMLInputElement | null = null;
+  _inputEl!: HTMLInputElement;
   _inputTimeout: ReturnType<typeof setTimeout> | undefined = undefined;
+  _currentLevel: number = 0;
 
   onAdd(map: Map) {
     this._map = map;
@@ -15,21 +16,28 @@ export default class LevelSelector {
         <label for="level-selector">Level selector:</label>
         <input type="number" value="0" id="level-selector" />
     `;
-    this._inputEl = this._container.querySelector("input");
+    this._inputEl = this._container.querySelector("input")!;
 
     return this._container;
   }
 
+  getCurrentLevel() {
+    return this._currentLevel;
+  }
+
   updateLevelSelector(level: number) {
-      this._inputEl!.value = level.toString();
+    this._inputEl.value = level.toString();
+    this._currentLevel = level;
   }
 
   onLevelChange(callback: (level: number) => void) {
-    this._inputEl!.addEventListener('change', () => {
+    this._inputEl.addEventListener('change', () => {
       clearTimeout(this._inputTimeout);
 
+      this._currentLevel = Number(this._inputEl.value);
+
       this._inputTimeout = setTimeout(() => {
-        callback(Number(this._inputEl!.value));
+        callback(Number(this._inputEl.value));
       }, 500);
     });
   }

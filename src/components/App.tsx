@@ -106,6 +106,7 @@ type AppState = {
   sources: {[key: string]: SourceSpecification},
   vectorLayers: {},
   spec: any,
+  currentLevel: number,
   mapView: {
     zoom: number,
     center: {
@@ -259,6 +260,7 @@ export default class App extends React.Component<any, AppState> {
       infos: [],
       mapStyle: style.emptyStyle,
       selectedLayerIndex: 0,
+      currentLevel: 0,
       sources: {},
       vectorLayers: {},
       mapState: "map",
@@ -700,18 +702,11 @@ export default class App extends React.Component<any, AppState> {
     });
   }
 
-  onLevelChange = (level: number) => {
-    const { mapStyle, selectedLayerIndex } = this.state;
-
-    const clonedStyle = cloneDeep(mapStyle);
-    const layerToUpdate = clonedStyle.layers[selectedLayerIndex];
-
-
-    console.log('onLevelChange', layerToUpdate);
-    if ('filter' in layerToUpdate && layerToUpdate.filter && Array.isArray(layerToUpdate.filter) && layerToUpdate.filter.length > 1){
-      layerToUpdate.filter = [
+  applyIndoorLevelFilter = (layer: LayerSpecification, level: number) => {
+    if ('filter' in layer && layer.id.startsWith('indoor') && layer.filter && Array.isArray(layer.filter) && layer.filter.length > 1) {
+      layer.filter = [
         'all',
-        (layerToUpdate.filter as any)[1],
+        (layer.filter as any)[1],
         [
           'any',
           ['==', ['get', 'level'], level.toString()],
@@ -724,10 +719,23 @@ export default class App extends React.Component<any, AppState> {
           ]
         ]
       ];
-
-      console.log('update style', clonedStyle)
-      this.onStyleChanged(clonedStyle);
     }
+
+    return layer;
+  }
+
+  onLevelChange = (level: number) => {
+    const { mapStyle } = this.state;
+
+    const clonedStyle = cloneDeep(mapStyle);
+
+    for (const layer of clonedStyle.layers) {
+      this.applyIndoorLevelFilter(layer, level);
+    }
+
+    this.onStyleChanged(clonedStyle);
+
+    this.setState({ currentLevel: level });
   };
 
   mapRenderer() {
@@ -866,7 +874,20 @@ export default class App extends React.Component<any, AppState> {
     this.setState({
       selectedLayerIndex: index,
       selectedLayerOriginalId: this.state.mapStyle.layers[index].id,
-    }, this.setStateInUrl);
+    }, () => {
+      const { mapStyle, currentLevel } = this.state;
+
+      const clonedStyle = cloneDeep(mapStyle);
+
+
+      for (const layer of clonedStyle.layers) {
+        this.applyIndoorLevelFilter(layer, currentLevel);
+      }
+
+      this.onStyleChanged(clonedStyle);
+
+      this.setStateInUrl();
+    });
   }
 
   setModal(modalName: keyof AppState["isOpen"], value: boolean) {
