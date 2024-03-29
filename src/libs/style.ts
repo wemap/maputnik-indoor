@@ -1,6 +1,7 @@
 import {derefLayers} from '@maplibre/maplibre-gl-style-spec'
-import type {StyleSpecification, LayerSpecification} from 'maplibre-gl'
+import type {StyleSpecification, LayerSpecification, ExpressionSpecification, LegacyFilterSpecification} from 'maplibre-gl'
 import tokens from '../config/tokens.json'
+import { combiningFilterOps } from '../libs/filterops'
 
 // Empty style is always used if no style could be restored or fetched
 const emptyStyle = ensureStyleValidity({
@@ -19,6 +20,40 @@ function ensureHasId(style: StyleSpecification & { id?: string }): StyleSpecific
     return style as StyleSpecification & { id: string };
   }
   return style as StyleSpecification & { id: string };
+}
+
+function combiningFilter(filterProps: any[]): LegacyFilterSpecification | ExpressionSpecification {
+  const filter = filterProps || ['all'];
+
+  if (!Array.isArray(filter)) {
+    return filter;
+  }
+
+  let combiningOp = filter[0];
+  let filters = filter.slice(1);
+
+  if (combiningFilterOps.indexOf(combiningOp) < 0) {
+    combiningOp = 'all';
+    filters = [filter.slice(0)];
+  }
+
+  return [combiningOp, ...filters] as LegacyFilterSpecification | ExpressionSpecification;
+}
+
+function replaceExpressionFilter(mapStyle: StyleSpecification): StyleSpecification {
+  const changedLayers = mapStyle.layers.map(layer => {
+    const changedLayer: LayerSpecification & { filter?: any } = { ...layer }
+    if (changedLayer.filter) {
+      changedLayer.filter = combiningFilter(changedLayer.filter)
+    }
+
+    return changedLayer
+  })
+
+  return {
+    ...mapStyle,
+    layers: changedLayers
+  }
 }
 
 function ensureHasNoInteractive(style: StyleSpecification & {id: string}) {
@@ -131,6 +166,7 @@ export default {
   emptyStyle,
   indexOfLayer,
   generateId,
+  replaceExpressionFilter,
   getAccessToken,
   replaceAccessTokens,
   stripAccessTokens,

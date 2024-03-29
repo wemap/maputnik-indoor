@@ -249,7 +249,6 @@ export default class AppToolbar extends React.Component<AppToolbarProps> {
               </select>
             </label>
           </ToolbarSelect>
-
           <ToolbarLink href={"https://github.com/maplibre/maputnik/wiki"}>
             <MdHelpOutline />
             <IconText>Help</IconText>

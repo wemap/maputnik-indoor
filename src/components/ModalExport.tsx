@@ -1,54 +1,61 @@
-import React from 'react'
-import Slugify from 'slugify'
-import {saveAs} from 'file-saver'
-import {version} from 'maplibre-gl/package.json'
-import {format} from '@maplibre/maplibre-gl-style-spec'
-import type {StyleSpecification} from 'maplibre-gl'
-import {MdFileDownload} from 'react-icons/md'
+import React, { useState } from 'react';
+import Slugify from 'slugify';
+import { saveAs } from 'file-saver';
+import { version } from 'maplibre-gl/package.json';
+import { format } from '@maplibre/maplibre-gl-style-spec';
+import type { StyleSpecification } from 'maplibre-gl';
+import { MdFileDownload } from 'react-icons/md';
 
-import FieldString from './FieldString'
-import InputButton from './InputButton'
-import Modal from './Modal'
-import style from '../libs/style'
-import fieldSpecAdditional from '../libs/field-spec-additional'
-
+import FieldString from './FieldString';
+import InputButton from './InputButton';
+import Modal from './Modal';
+import style from '../libs/style';
+import fieldSpecAdditional from '../libs/field-spec-additional';
+import { autoExportKey } from './ModalGlobalSettings';
+import FieldCheckbox from './FieldCheckbox';
 
 const MAPLIBRE_GL_VERSION = version;
 
-
 type ModalExportProps = {
-  mapStyle: StyleSpecification & { id: string }
-  onStyleChanged(...args: unknown[]): unknown
-  isOpen: boolean
-  onOpenToggle(...args: unknown[]): unknown
+  mapStyle: StyleSpecification & { id: string };
+  onStyleChanged(...args: unknown[]): unknown;
+  isOpen: boolean;
+  onOpenToggle(...args: unknown[]): unknown;
 };
 
+const ModalExport: React.FC<ModalExportProps> = ({
+  mapStyle,
+  onStyleChanged,
+  isOpen,
+  onOpenToggle,
+}) => {
+  const [autoExportExpressionFilter, setAutoExportExpressionFilter] = React.useState(localStorage.getItem(autoExportKey) === 'true');
 
-export default class ModalExport extends React.Component<ModalExportProps> {
+  React.useEffect(() => {
+    localStorage.setItem(autoExportKey, autoExportExpressionFilter.toString());
+  }, [autoExportExpressionFilter]);
 
-  tokenizedStyle () {
-    return format(
-      style.stripAccessTokens(
-        style.replaceAccessTokens(this.props.mapStyle)
-      )
-    );
-  }
+  const tokenizedStyle = () => {
+    const mapStyleCopy = style.stripAccessTokens(style.replaceAccessTokens({ ...mapStyle }));
 
-  exportName () {
-    if(this.props.mapStyle.name) {
-      return Slugify(this.props.mapStyle.name, {
+    return format(autoExportExpressionFilter ? style.replaceExpressionFilter(mapStyleCopy) : mapStyleCopy);
+  };
+
+  const exportName = () => {
+    if (mapStyle.name) {
+      return Slugify(mapStyle.name, {
         replacement: '_',
         remove: /[*\-+~.()'"!:]/g,
-        lower: true
+        lower: true,
       });
     } else {
-      return this.props.mapStyle.id
+      return mapStyle.id;
     }
-  }
+  };
 
-  downloadHtml() {
-    const tokenStyle = this.tokenizedStyle();
-    const htmlTitle = this.props.mapStyle.name || "Map";
+  const downloadHtml = () => {
+    const tokenStyle = tokenizedStyle();
+    const htmlTitle = mapStyle.name || "Map";
     const html = `<!DOCTYPE html>
 <html>
 <head>
@@ -75,39 +82,37 @@ export default class ModalExport extends React.Component<ModalExportProps> {
 </html>
 `;
 
-    const blob = new Blob([html], {type: "text/html;charset=utf-8"});
-    const exportName = this.exportName();
-    saveAs(blob, exportName + ".html");
-  }
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const exportNameValue = exportName();
+    saveAs(blob, exportNameValue + ".html");
+  };
 
-  downloadStyle() {
-    const tokenStyle = this.tokenizedStyle();
-    const blob = new Blob([tokenStyle], {type: "application/json;charset=utf-8"});
-    const exportName = this.exportName();
-    saveAs(blob, exportName + ".json");
-  }
+  const downloadStyle = () => {
+    const tokenStyle = tokenizedStyle();
+    const blob = new Blob([tokenStyle], { type: "application/json;charset=utf-8" });
+    const exportNameValue = exportName();
+    saveAs(blob, exportNameValue + ".json");
+  };
 
-  changeMetadataProperty(property: string, value: any) {
+  const changeMetadataProperty = (property: string, value: any) => {
     const changedStyle = {
-      ...this.props.mapStyle,
+      ...mapStyle,
       metadata: {
-        ...this.props.mapStyle.metadata as any,
-        [property]: value
-      }
-    }
-    this.props.onStyleChanged(changedStyle)
-  }
+        ...(mapStyle.metadata as any),
+        [property]: value,
+      },
+    };
+    onStyleChanged(changedStyle);
+  };
 
-
-  render() {
-    return <Modal
+  return (
+    <Modal
       data-wd-key="modal:export"
-      isOpen={this.props.isOpen}
-      onOpenToggle={this.props.onOpenToggle}
+      isOpen={isOpen}
+      onOpenToggle={onOpenToggle}
       title={'Export Style'}
       className="maputnik-export-modal"
     >
-
       <section className="maputnik-modal-section">
         <h1>Download Style</h1>
         <p>
@@ -115,38 +120,41 @@ export default class ModalExport extends React.Component<ModalExportProps> {
         </p>
 
         <div>
+          <FieldCheckbox
+            label={'Auto export filter as expression'}
+            value={autoExportExpressionFilter}
+            onChange={(autoExport) => {
+              setAutoExportExpressionFilter(Boolean(autoExport));
+            }}
+          />
           <FieldString
             label={fieldSpecAdditional.maputnik.maptiler_access_token.label}
             fieldSpec={fieldSpecAdditional.maputnik.maptiler_access_token}
-            value={(this.props.mapStyle.metadata || {} as any)['maputnik:openmaptiles_access_token']}
-            onChange={this.changeMetadataProperty.bind(this, "maputnik:openmaptiles_access_token")}
+            value={(mapStyle.metadata || {} as any)['maputnik:openmaptiles_access_token']}
+            onChange={changeMetadataProperty.bind(null, "maputnik:openmaptiles_access_token")}
           />
           <FieldString
             label={fieldSpecAdditional.maputnik.thunderforest_access_token.label}
             fieldSpec={fieldSpecAdditional.maputnik.thunderforest_access_token}
-            value={(this.props.mapStyle.metadata || {} as any)['maputnik:thunderforest_access_token']}
-            onChange={this.changeMetadataProperty.bind(this, "maputnik:thunderforest_access_token")}
+            value={(mapStyle.metadata || {} as any)['maputnik:thunderforest_access_token']}
+            onChange={changeMetadataProperty.bind(null, "maputnik:thunderforest_access_token")}
           />
         </div>
 
         <div className="maputnik-modal-export-buttons">
-          <InputButton
-            onClick={this.downloadStyle.bind(this)}
-          >
+          <InputButton onClick={downloadStyle}>
             <MdFileDownload />
             Download Style
           </InputButton>
 
-          <InputButton
-            onClick={this.downloadHtml.bind(this)}
-          >
+          <InputButton onClick={downloadHtml}>
             <MdFileDownload />
             Download HTML
           </InputButton>
         </div>
       </section>
-
     </Modal>
-  }
-}
+  );
+};
 
+export default ModalExport;
