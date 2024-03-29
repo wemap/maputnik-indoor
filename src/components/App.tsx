@@ -78,6 +78,13 @@ function updateRootSpec(spec: any, fieldName: string, newValues: any) {
   }
 }
 
+function hasFilterWithLevel(filter: any[]): boolean {
+  return filter[0] === 'all' && filter[1] && filter[2]
+    && filter[2][0] === 'any' && filter[2][1] && filter[2][1][0] === '=='
+    && filter[2][1][1][0] === 'get' && filter[2][1][1][1] === 'level';
+}
+
+
 type OnStyleChangedOpts = {
   save?: boolean
   addRevision?: boolean
@@ -706,7 +713,7 @@ export default class App extends React.Component<any, AppState> {
     if ('filter' in layer && layer.id.startsWith('indoor') && layer.filter && Array.isArray(layer.filter) && layer.filter.length > 1) {
       layer.filter = [
         'all',
-        (layer.filter as any)[1],
+        hasFilterWithLevel(layer.filter) ? (layer.filter as any)[1] : layer.filter,
         [
           'any',
           ['==', ['get', 'level'], level.toString()],
@@ -716,7 +723,8 @@ export default class App extends React.Component<any, AppState> {
             ['has', 'max_level'],
             ['>=', level, ['get', 'min_level']],
             ['<=', level, ['get', 'max_level']]
-          ]
+          ],
+          ['!', ['has', 'level']]
         ]
       ];
     }
