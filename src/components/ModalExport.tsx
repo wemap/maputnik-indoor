@@ -11,7 +11,6 @@ import InputButton from './InputButton';
 import Modal from './Modal';
 import style from '../libs/style';
 import fieldSpecAdditional from '../libs/field-spec-additional';
-import { autoExportKey } from './ModalGlobalSettings';
 import FieldCheckbox from './FieldCheckbox';
 
 const MAPLIBRE_GL_VERSION = version;
@@ -22,6 +21,9 @@ type ModalExportProps = {
   isOpen: boolean;
   onOpenToggle(...args: unknown[]): unknown;
 };
+
+const storagePrefix = "maputnik"
+const autoExportKey = [storagePrefix, 'autoExportExpressionFilter'].join(':');
 
 const ModalExport: React.FC<ModalExportProps> = ({
   mapStyle,

@@ -1,4 +1,4 @@
-import {derefLayers} from '@maplibre/maplibre-gl-style-spec'
+import { derefLayers, migrate } from '@maplibre/maplibre-gl-style-spec'
 import type {StyleSpecification, LayerSpecification, ExpressionSpecification, LegacyFilterSpecification} from 'maplibre-gl'
 import tokens from '../config/tokens.json'
 import { combiningFilterOps } from '../libs/filterops'
@@ -40,11 +40,41 @@ function combiningFilter(filterProps: any[]): LegacyFilterSpecification | Expres
   return [combiningOp, ...filters] as LegacyFilterSpecification | ExpressionSpecification;
 }
 
+function migrateFilter(filter: LegacyFilterSpecification | ExpressionSpecification) {
+  // This "any" can be removed in latest version of maplibre where maplibre re-exported types from style-spec
+  return (migrate(createStyleFromFilter(filter) as any).layers[0] as any).filter;
+}
+
+function createStyleFromFilter(filter: LegacyFilterSpecification | ExpressionSpecification): StyleSpecification & { id: string } {
+  return {
+    "id": "tmp",
+    "version": 8,
+    "name": "Empty Style",
+    "metadata": { "maputnik:renderer": "mlgljs" },
+    "sources": {
+      "tmp": {
+        "type": "geojson",
+        "data": ''
+      }
+    },
+    "sprite": "",
+    "glyphs": "https://orangemug.github.io/font-glyphs/glyphs/{fontstack}/{range}.pbf",
+    "layers": [
+      {
+        id: "tmp",
+        type: "fill",
+        source: "tmp",
+        filter: filter,
+      },
+    ],
+  };
+}
+
 function replaceExpressionFilter(mapStyle: StyleSpecification): StyleSpecification {
   const changedLayers = mapStyle.layers.map(layer => {
     const changedLayer: LayerSpecification & { filter?: any } = { ...layer }
     if (changedLayer.filter) {
-      changedLayer.filter = combiningFilter(changedLayer.filter)
+      changedLayer.filter = migrateFilter(combiningFilter(changedLayer.filter));
     }
 
     return changedLayer
