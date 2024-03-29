@@ -31,7 +31,7 @@ const ModalExport: React.FC<ModalExportProps> = ({
   isOpen,
   onOpenToggle,
 }) => {
-  const [autoExportExpressionFilter, setAutoExportExpressionFilter] = React.useState(localStorage.getItem(autoExportKey) === 'true');
+  const [autoExportExpressionFilter, setAutoExportExpressionFilter] = useState(localStorage.getItem(autoExportKey) === 'true');
 
   React.useEffect(() => {
     localStorage.setItem(autoExportKey, autoExportExpressionFilter.toString());
