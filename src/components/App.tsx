@@ -40,6 +40,12 @@ import isEqual from 'lodash.isequal'
 import Debug from '../libs/debug'
 import { SortEnd } from 'react-sortable-hoc';
 import { MapOptions } from 'maplibre-gl';
+import { create } from 'zustand';
+import {
+  subscribeWithSelector
+} from 'zustand/middleware';
+import MapboxDraw from '@mapbox/mapbox-gl-draw';
+import { addSource } from '../libs/source';
 
 // Buffer must be defined globally for @maplibre/maplibre-gl-style-spec validate() function to succeed.
 window.Buffer = buffer.Buffer;
@@ -140,6 +146,63 @@ type AppState = {
     debug: boolean
   }
 }
+
+type DrawStoreValue = {
+  setCorners(corners: {
+    topLeft: number[]
+    topRight: number[]
+    bottomRight: number[]
+    bottomLeft: number[]
+  } | null): void
+  startDrawRect(): void
+  setSource(sourcePartial: Record<string, any>): void
+  stopDrawing(): void
+  isDrawing: boolean
+  source: Record<string, any>
+  drawingMode: string | null
+  corners: {
+    topLeft: number[]
+    topRight: number[]
+    bottomRight: number[]
+    bottomLeft: number[]
+  } | null;
+}
+
+export const useDrawStore = create<
+DrawStoreValue,
+[['zustand/subscribeWithSelector', never]]
+>(subscribeWithSelector((set, get) => ({
+  isDrawing: false,
+  corners: null,
+  source: {},
+  drawingMode: null,
+  setCorners: (corners) => {
+    set({
+      corners
+    })
+  },
+  setSource: (sourcePartial: Record<string, any>) => {
+    set({
+      source: {
+        ...get().source,
+        ...sourcePartial
+      }
+    })
+  },
+  startDrawRect: () => {
+    set({
+      isDrawing: true,
+      drawingMode: MapboxDraw.constants.modes.DRAW_POLYGON
+    })
+  },
+  stopDrawing: () => {
+    set({
+      source: {},
+      isDrawing: false,
+      drawingMode: MapboxDraw.constants.modes.SIMPLE_SELECT
+    })
+  }
+})));
 
 export default class App extends React.Component<any, AppState> {
   revisionStore: RevisionStore;
@@ -329,6 +392,34 @@ export default class App extends React.Component<any, AppState> {
 
   componentDidMount() {
     window.addEventListener("keydown", this.handleKeyPress);
+
+    useDrawStore.subscribe((state) => state.isDrawing, (isDrawing) => {
+      if (isDrawing) {
+        this.setModal("sources", false);
+      }
+    });
+
+    useDrawStore.subscribe((state) => state.source, (source) => {
+      if (source && source.id && source.url && source.corners) {
+        const newStyleChanged = addSource(this.state.mapStyle, source.id, {
+          type: 'image',
+          url: source.url,
+          coordinates: [
+            source.corners.topLeft,
+            source.corners.topRight,
+            source.corners.bottomRight,
+            source.corners.bottomLeft
+          ]
+        }) as any;
+        newStyleChanged.layers.push({
+          id: source.id + '-image-layer',
+          type: 'raster',
+          source: source.id
+        })
+
+        this.onStyleChanged(newStyleChanged);
+      }
+    });
   }
 
   componentWillUnmount() {
@@ -1036,13 +1127,15 @@ export default class App extends React.Component<any, AppState> {
       />
     </div>
 
-    return <AppLayout
-      toolbar={toolbar}
-      layerList={layerList}
-      layerEditor={layerEditor}
-      map={this.mapRenderer()}
-      bottom={bottomPanel}
-      modals={modals}
-    />
+    return <>
+      <AppLayout
+        toolbar={toolbar}
+        layerList={layerList}
+        layerEditor={layerEditor}
+        map={this.mapRenderer()}
+        bottom={bottomPanel}
+        modals={modals}
+      />
+    </>
   }
 }

@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import {latest} from '@maplibre/maplibre-gl-style-spec'
 import Block from './Block'
 import FieldUrl from './FieldUrl'
@@ -8,6 +8,8 @@ import FieldDynamicArray from './FieldDynamicArray'
 import FieldArray from './FieldArray'
 import FieldJson from './FieldJson'
 import FieldCheckbox from './FieldCheckbox'
+import InputButton from './InputButton'
+import { useDrawStore } from './App'
 
 export type EditorMode = "video" | "image" | "tilejson_vector" | "tilexyz_raster" | "tilejson_raster" | "tilexyz_raster-dem" | "tilejson_raster-dem" | "tilexyz_vector" | "geojson_url" | "geojson_json" | null;
 
@@ -101,43 +103,62 @@ type ImageSourceEditorProps = {
   onChange(...args: unknown[]): unknown
 };
 
-class ImageSourceEditor extends React.Component<ImageSourceEditorProps> {
-  render() {
-    const changeCoord = (idx: number, val: [number, number]) => {
-      const coordinates = this.props.source.coordinates.slice(0);
-      coordinates[idx] = val;
+const ImageSourceEditor = (props: ImageSourceEditorProps) => {
+  const startDrawRect = useDrawStore((state) => state.startDrawRect);
+  const setSource = useDrawStore((state) => state.setSource);
 
-      this.props.onChange({
-        ...this.props.source,
-        coordinates,
-      });
-    }
+  const changeCoord = (idx: number, val: [number, number]) => {
+    const coordinates = props.source.coordinates.slice(0);
+    coordinates[idx] = val;
 
-    return <div>
-      <FieldUrl
-        label={"Image URL"}
-        fieldSpec={latest.source_image.url}
-        value={this.props.source.url}
-        onChange={url => this.props.onChange({
-          ...this.props.source,
-          url,
-        })}
-      />
-      {["top left", "top right", "bottom right", "bottom left"].map((label, idx) => {
-        return (
-          <FieldArray
-            label={`Coord ${label}`}
-            key={label}
-            length={2}
-            type="number"
-            value={this.props.source.coordinates[idx]}
-            default={[0, 0]}
-            onChange={(val: [number, number]) => changeCoord(idx, val)}
-          />
-        );
-      })}
-    </div>
+    props.onChange({
+      ...props.source,
+      coordinates,
+    });
   }
+
+  useEffect(() => {
+    setSource({url: props.source.url});
+  }, [props.source.url]);
+
+  return <div>
+    <FieldUrl
+      label={"Image URL"}
+      fieldSpec={latest.source_image.url}
+      value={props.source.url}
+      onInput={url => {
+        setSource({ url });
+      }}
+      onChange={(url: string) => {
+        props.onChange({
+          ...props.source,
+          url,
+        });
+        setSource({ url });
+      }}
+    />
+    {!props.source.coordinates || props.source.coordinates[0]?.[0] === 0 && props.source.coordinates[0]?.[1] === 0 ? (
+      <InputButton
+        className="maputnik-draw-rect"
+        onClick={startDrawRect}
+      >
+        Draw Rectangle on map
+      </InputButton>
+    ) : null}
+    {["topLeft", "topRight", "bottomRight", "bottomLeft"].map((label, idx) => {
+      return (
+        <FieldArray
+          label={`Coord ${label}`}
+          key={label}
+          length={2}
+          type="number"
+          value={props.source.coordinates[idx]}
+          default={[0, 0]}
+          onChange={(val: [number, number]) => changeCoord(idx, val)}
+        />
+      );
+    })}
+  </div>
 }
 
 type VideoSourceEditorProps = {

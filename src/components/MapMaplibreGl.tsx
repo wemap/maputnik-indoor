@@ -8,15 +8,20 @@ import colors from 'mapbox-gl-inspect/lib/colors'
 import MapMaplibreGlLayerPopup from './MapMaplibreGlLayerPopup'
 import MapMaplibreGlFeaturePropertyPopup, { InspectFeature } from './MapMaplibreGlFeaturePropertyPopup'
 import Color from 'color'
+import MapboxDraw from '@mapbox/mapbox-gl-draw';
+
 import ZoomControl from '../libs/zoomcontrol'
 import LevelSelector from '../libs/levelselector'
 import { HighlightedLayer, colorHighlightedLayer } from '../libs/highlight'
+import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import '../maplibregl.css'
 import '../libs/maplibre-rtl'
+
 //@ts-ignore
 import MaplibreGeocoder from '@maplibre/maplibre-gl-geocoder';
 import '@maplibre/maplibre-gl-geocoder/dist/maplibre-gl-geocoder.css';
+import { useDrawStore } from './App'
 
 function renderPopup(popup: JSX.Element, mountNode: ReactDOM.Container) {
   ReactDOM.render(popup, mountNode);
@@ -201,7 +206,7 @@ export default class MapMaplibreGl extends React.Component<MapMaplibreGlProps, M
         }
       }
     })
-    map.addControl(inspect)
+    map.addControl(inspect);
 
     map.on("style.load", () => {
       this.setState({
@@ -230,6 +235,63 @@ export default class MapMaplibreGl extends React.Component<MapMaplibreGlProps, M
 
     map.on("dragend", mapViewChange);
     map.on("zoomend", mapViewChange);
+
+    const draw = new MapboxDraw({
+      displayControlsDefault: false
+    }) as any;
+
+    map.on('click', () => {
+      if (useDrawStore.getState().isDrawing) {
+        const data = draw.getAll();
+        if (data.features.length > 0) {
+          const drawedRect = data.features[0];
+
+          // Check length of 6 because we need to check for a rectangle
+          // 6 and not 4 because
+          // 6 = 4 corners + current drawing point + closing point
+          if (drawedRect.geometry.type === 'Polygon'
+            && drawedRect.geometry.coordinates.length === 1
+            && drawedRect.geometry.coordinates[0].length === 6) {
+            const [topLeft, topRight, bottomRight, bottomLeft] = drawedRect.geometry.coordinates[0];
+  
+            useDrawStore.getState().setSource({
+              corners: {
+                topLeft,
+                topRight,
+                bottomRight,
+                bottomLeft
+              }
+            });
+            useDrawStore.getState().stopDrawing();
+          }
+
+        }
+      }
+    });
+
+    map.on('draw.modechange', () => {
+      if (useDrawStore.getState().isDrawing) {
+        useDrawStore.getState().stopDrawing();
+      }
+    });
+
+    useDrawStore.subscribe((state) => state.isDrawing, (isDrawing) => {
+      if (isDrawing) {
+        map.removeControl(inspect);
+        map.addControl(draw);
+      } else {
+        draw.deleteAll();
+        map.removeControl(draw);
+        map.addControl(inspect);
+      }
+    });
+
+    useDrawStore.subscribe((state) => state.drawingMode, (drawingMode) => {
+      if (useDrawStore.getState().isDrawing) {
+        draw.changeMode(drawingMode || MapboxDraw.constants.modes.SIMPLE_SELECT);
+      }
+    });
+
   }
 
   onLayerSelectById = (id: string) => {

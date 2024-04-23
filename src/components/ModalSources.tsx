@@ -12,6 +12,7 @@ import ModalSourcesTypeEditor, { EditorMode } from './ModalSourcesTypeEditor'
 import style from '../libs/style'
 import { deleteSource, addSource, changeSource } from '../libs/source'
 import publicSources from '../config/tilesets.json'
+import { useDrawStore } from './App'
 
 
 type PublicSourceProps = {
@@ -115,9 +116,13 @@ type AddSourceState = {
 class AddSource extends React.Component<AddSourceProps, AddSourceState> {
   constructor(props: AddSourceProps) {
     super(props)
+    const sourceId = style.generateId();
+    const setSource = useDrawStore.getState().setSource;
+    setSource({id: sourceId});
+
     this.state = {
       mode: 'tilejson_vector',
-      sourceId: style.generateId(),
+      sourceId: sourceId,
       source: this.defaultSource('tilejson_vector'),
     }
   }
@@ -212,13 +217,17 @@ class AddSource extends React.Component<AddSourceProps, AddSourceState> {
     const sourceTypeFieldSpec = {
       doc: latest.source_vector.type.doc
     };
+    const setSource = useDrawStore.getState().setSource;
 
     return <div className="maputnik-add-source">
       <FieldString
         label={"Source ID"}
         fieldSpec={{doc: "Unique ID that identifies the source and is used in the layer to reference the source."}}
         value={this.state.sourceId}
-        onChange={(v: string) => this.setState({ sourceId: v})}
+        onChange={(v: string) => {
+          this.setState({ sourceId: v});
+          setSource({id: v});
+        }}
       />
       <FieldSelect
         label={"Source Type"}
