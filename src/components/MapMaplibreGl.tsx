@@ -1,6 +1,6 @@
 import React, {type JSX} from 'react'
 import ReactDOM from 'react-dom'
-import MapLibreGl, {LayerSpecification, LngLat, Map, MapOptions, SourceSpecification, StyleSpecification} from 'maplibre-gl'
+import MapLibreGl, {LayerSpecification, LngLat, Map, MapMouseEvent, MapOptions, SourceSpecification, StyleSpecification} from 'maplibre-gl'
 // @ts-ignore
 import MapboxInspect from 'mapbox-gl-inspect'
 // @ts-ignore
@@ -240,30 +240,64 @@ export default class MapMaplibreGl extends React.Component<MapMaplibreGlProps, M
       displayControlsDefault: false
     }) as any;
 
-    map.on('click', () => {
-      if (useDrawStore.getState().isDrawing) {
-        const data = draw.getAll();
-        if (data.features.length > 0) {
-          const drawedRect = data.features[0];
 
-          // Check length of 6 because we need to check for a rectangle
-          // 6 and not 4 because
-          // 6 = 4 corners + current drawing point + closing point
-          if (drawedRect.geometry.type === 'Polygon'
-            && drawedRect.geometry.coordinates.length === 1
-            && drawedRect.geometry.coordinates[0].length === 6) {
-            const [topLeft, topRight, bottomRight, bottomLeft] = drawedRect.geometry.coordinates[0];
-  
+    let clickEvent: Array<MapMouseEvent> = [];
+    map.on('click', (e) => {
+      const imageUrl = useDrawStore.getState().source.url;
+      if (useDrawStore.getState().isDrawing && imageUrl) {
+
+        clickEvent.push(e);
+
+        if (clickEvent.length === 2) {
+          const [topLeft, bottomRight] = clickEvent;
+          const img = new Image();
+          img.src = imageUrl;
+          img.onload = () => {
+            const { width, height } = img;
+            // Apply corners based on image ratio and topLeftClick and bottomRightClick
+            function getCorners(topLeft: LngLat, bottomRight: LngLat, width: number, height: number) {
+              const ratio = width / height;
+              const topLeftClick = topLeft;
+              const bottomRightClick = bottomRight;
+              if (ratio > 1) {
+                // Image is wider than it is tall
+                const newWidth = height * ratio;
+                const newTopLeftX = topLeftClick.lng - (newWidth - width) / 2;
+                const newBottomRightX = bottomRightClick.lng + (newWidth - width) / 2;
+                return [
+                  [newTopLeftX, topLeftClick.lat],
+                  [newTopLeftX, bottomRightClick.lat],
+                  [newBottomRightX, bottomRightClick.lat],
+                  [newBottomRightX, topLeftClick.lat]
+                ];
+              } else {
+                // Image is taller than it is wide
+                const newHeight = width / ratio;
+                const newTopLeftY = topLeftClick.lat - (newHeight - height) / 2;
+                const newBottomRightY = bottomRightClick.lat + (newHeight - height) / 2;
+                return [
+                  [topLeftClick.lng, newTopLeftY],
+                  [topLeftClick.lng, newBottomRightY],
+                  [bottomRightClick.lng, newBottomRightY],
+                  [bottomRightClick.lng, newTopLeftY]
+                ];
+              }
+            }
+
+            const corners = getCorners(topLeft.lngLat, bottomRight.lngLat, width, height);
+
             useDrawStore.getState().setSource({
               corners: {
-                topLeft,
-                topRight,
-                bottomRight,
-                bottomLeft
+                topLeft: corners[0],
+                bottomLeft: corners[1],
+                bottomRight: corners[2],
+                topRight: corners[3],
               }
             });
+
             useDrawStore.getState().stopDrawing();
-          }
+            clickEvent = [];
+          };
 
         }
       }
@@ -276,19 +310,19 @@ export default class MapMaplibreGl extends React.Component<MapMaplibreGlProps, M
     });
 
     useDrawStore.subscribe((state) => state.isDrawing, (isDrawing) => {
-      if (isDrawing) {
-        map.removeControl(inspect);
-        map.addControl(draw);
-      } else {
-        draw.deleteAll();
-        map.removeControl(draw);
-        map.addControl(inspect);
-      }
+      // if (isDrawing) {
+      //   map.removeControl(inspect);
+      //   map.addControl(draw);
+      // } else {
+      //   draw.deleteAll();
+      //   map.removeControl(draw);
+      //   map.addControl(inspect);
+      // }
     });
 
     useDrawStore.subscribe((state) => state.drawingMode, (drawingMode) => {
       if (useDrawStore.getState().isDrawing) {
-        draw.changeMode(drawingMode || MapboxDraw.constants.modes.SIMPLE_SELECT);
+        // draw.changeMode(drawingMode || MapboxDraw.constants.modes.SIMPLE_SELECT);
       }
     });
 
