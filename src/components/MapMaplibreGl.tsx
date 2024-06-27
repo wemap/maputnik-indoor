@@ -1,6 +1,6 @@
-import React, {type JSX} from 'react'
+import React, { type JSX } from 'react'
 import ReactDOM from 'react-dom'
-import MapLibreGl, {LayerSpecification, LngLat, Map, MapMouseEvent, MapOptions, SourceSpecification, StyleSpecification} from 'maplibre-gl'
+import MapLibreGl, { LayerSpecification, LngLat, Map, MapMouseEvent, MapOptions, SourceSpecification, StyleSpecification } from 'maplibre-gl'
 // @ts-ignore
 import MapboxInspect from 'mapbox-gl-inspect'
 // @ts-ignore
@@ -38,14 +38,14 @@ function buildInspectStyle(originalMapStyle: StyleSpecification, coloredLayers: 
   } as LayerSpecification
 
   const layer = colorHighlightedLayer(highlightedLayer)
-  if(layer) {
+  if (layer) {
     coloredLayers.push(layer)
   }
 
-  const sources: {[key:string]: SourceSpecification} = {}
+  const sources: { [key: string]: SourceSpecification } = {}
   Object.keys(originalMapStyle.sources).forEach(sourceId => {
     const source = originalMapStyle.sources[sourceId]
-    if(source.type !== 'raster' && source.type !== 'raster-dem') {
+    if (source.type !== 'raster' && source.type !== 'raster-dem') {
       sources[sourceId] = source
     }
   })
@@ -59,7 +59,7 @@ function buildInspectStyle(originalMapStyle: StyleSpecification, coloredLayers: 
 }
 
 type MapMaplibreGlProps = {
-  onDataChange?(event: {map: Map | null}): unknown
+  onDataChange?(event: { map: Map | null }): unknown
   onLayerSelect(...args: unknown[]): unknown
   onLevelChange(level: number): void;
   mapStyle: StyleSpecification
@@ -71,7 +71,7 @@ type MapMaplibreGlProps = {
     showOverdrawInspector?: boolean
   }
   replaceAccessTokens(mapStyle: StyleSpecification): StyleSpecification
-  onChange(value: {center: LngLat, zoom: number}): unknown
+  onChange(value: { center: LngLat, zoom: number }): unknown
 };
 
 type MapMaplibreGlState = {
@@ -82,10 +82,10 @@ type MapMaplibreGlState = {
 
 export default class MapMaplibreGl extends React.Component<MapMaplibreGlProps, MapMaplibreGlState> {
   static defaultProps = {
-    onMapLoaded: () => {},
-    onDataChange: () => {},
-    onLayerSelect: () => {},
-    onChange: () => {},
+    onMapLoaded: () => { },
+    onDataChange: () => { },
+    onLayerSelect: () => { },
+    onChange: () => { },
     options: {} as MapOptions,
   }
   container: HTMLDivElement | null = null
@@ -99,13 +99,13 @@ export default class MapMaplibreGl extends React.Component<MapMaplibreGlProps, M
   }
 
   updateMapFromProps(props: MapMaplibreGlProps) {
-    if(!this.state.map) return
+    if (!this.state.map) return
 
     //Maplibre GL now does diffing natively so we don't need to calculate
     //the necessary operations ourselves!
     this.state.map.setStyle(
       this.props.replaceAccessTokens(props.mapStyle),
-      {diff: true}
+      { diff: true }
     )
   }
 
@@ -113,7 +113,7 @@ export default class MapMaplibreGl extends React.Component<MapMaplibreGlProps, M
     let should = false;
     try {
       should = JSON.stringify(this.props) !== JSON.stringify(nextProps) || JSON.stringify(this.state) !== JSON.stringify(nextState);
-    } catch(e) {
+    } catch (e) {
       // no biggie, carry on
     }
     return should;
@@ -124,7 +124,7 @@ export default class MapMaplibreGl extends React.Component<MapMaplibreGlProps, M
 
     this.updateMapFromProps(this.props);
 
-    if(this.state.inspect && this.props.inspectModeEnabled !== this.state.inspect._showInspectMap) {
+    if (this.state.inspect && this.props.inspectModeEnabled !== this.state.inspect._showInspectMap) {
       // HACK: Fix for <https://github.com/maplibre/maputnik/issues/576>, while we wait for a proper fix.
       // eslint-disable-next-line
       this.state.inspect._popupBlocked = false;
@@ -137,7 +137,7 @@ export default class MapMaplibreGl extends React.Component<MapMaplibreGlProps, M
         // mapbox-gl-inspect.
         try {
           this.state.inspect.render();
-        } catch(err) {
+        } catch (err) {
           console.error("FIXME: Caught error", err);
         }
       }
@@ -162,7 +162,7 @@ export default class MapMaplibreGl extends React.Component<MapMaplibreGlProps, M
     const mapViewChange = () => {
       const center = map.getCenter();
       const zoom = map.getZoom();
-      this.props.onChange({center, zoom});
+      this.props.onChange({ center, zoom });
     }
     mapViewChange();
 
@@ -180,7 +180,7 @@ export default class MapMaplibreGl extends React.Component<MapMaplibreGlProps, M
 
     levelSelector.onLevelChange(this.props.onLevelChange);
 
-    const nav = new MapLibreGl.NavigationControl({visualizePitch:true});
+    const nav = new MapLibreGl.NavigationControl({ visualizePitch: true });
     map.addControl(nav, 'top-right');
 
     const tmpNode = document.createElement('div');
@@ -199,7 +199,7 @@ export default class MapMaplibreGl extends React.Component<MapMaplibreGlProps, M
       },
       buildInspectStyle: (originalMapStyle: StyleSpecification, coloredLayers: HighlightedLayer[]) => buildInspectStyle(originalMapStyle, coloredLayers, this.props.highlightedLayer),
       renderPopup: (features: InspectFeature[]) => {
-        if(this.props.inspectModeEnabled) {
+        if (this.props.inspectModeEnabled) {
           return renderPopup(<MapMaplibreGlFeaturePropertyPopup features={features} />, tmpNode);
         } else {
           return renderPopup(<MapMaplibreGlLayerPopup features={features} onLayerSelect={this.onLayerSelectById} zoom={this.state.zoom} />, tmpNode);
@@ -217,7 +217,7 @@ export default class MapMaplibreGl extends React.Component<MapMaplibreGlProps, M
     })
 
     map.on("data", e => {
-      if(e.dataType !== 'tile') return
+      if (e.dataType !== 'tile') return
       this.props.onDataChange!({
         map: this.state.map
       })
@@ -236,6 +236,10 @@ export default class MapMaplibreGl extends React.Component<MapMaplibreGlProps, M
     map.on("dragend", mapViewChange);
     map.on("zoomend", mapViewChange);
 
+    // const draw = new MapboxDraw({
+    //   displayControlsDefault: false
+    // }) as any;
+
     let clickEvent: Array<MapMouseEvent> = [];
     map.on('click', (e) => {
       const imageUrl = useDrawStore.getState().source.url;
@@ -244,49 +248,61 @@ export default class MapMaplibreGl extends React.Component<MapMaplibreGlProps, M
         clickEvent.push(e);
 
         if (clickEvent.length === 2) {
-          const [topLeft, bottomRight] = clickEvent;
+          const [topLeftClick, bottomRightClick] = clickEvent;
           const img = new Image();
           img.src = imageUrl;
           img.onload = () => {
             const { width, height } = img;
             // Apply corners based on image ratio and topLeftClick and bottomRightClick
             function getCorners(topLeft: LngLat, bottomRight: LngLat, width: number, height: number) {
-              const ratio = width / height;
-              const topLeftClick = topLeft;
-              const bottomRightClick = bottomRight;
-              if (ratio > 1) {
-                // Image is wider than it is tall
-                const newWidth = height * ratio;
-                const newTopLeftX = topLeftClick.lng - (newWidth - width) / 2;
-                const newBottomRightX = bottomRightClick.lng + (newWidth - width) / 2;
-                return [
-                  [newTopLeftX, topLeftClick.lat],
-                  [newTopLeftX, bottomRightClick.lat],
-                  [newBottomRightX, bottomRightClick.lat],
-                  [newBottomRightX, topLeftClick.lat]
-                ];
+              // Step 1: Calculate bounding box width and height in geographical coordinates
+              const boundingBoxWidth = bottomRight.lng - topLeft.lng;
+              const boundingBoxHeight = topLeft.lat - bottomRight.lat;
+
+              // Step 2: Calculate aspect ratios
+              const imageAspectRatio = width / height;
+              const boundingBoxAspectRatio = boundingBoxWidth / boundingBoxHeight;
+
+              let scaledWidth, scaledHeight;
+
+              // Step 3: Determine scaled dimensions
+              if (imageAspectRatio > boundingBoxAspectRatio) {
+                // Scale by width
+                scaledWidth = boundingBoxWidth;
+                scaledHeight = boundingBoxWidth / imageAspectRatio;
               } else {
-                // Image is taller than it is wide
-                const newHeight = width / ratio;
-                const newTopLeftY = topLeftClick.lat - (newHeight - height) / 2;
-                const newBottomRightY = bottomRightClick.lat + (newHeight - height) / 2;
-                return [
-                  [topLeftClick.lng, newTopLeftY],
-                  [topLeftClick.lng, newBottomRightY],
-                  [bottomRightClick.lng, newBottomRightY],
-                  [bottomRightClick.lng, newTopLeftY]
-                ];
+                // Scale by height
+                scaledWidth = boundingBoxHeight * imageAspectRatio;
+                scaledHeight = boundingBoxHeight;
               }
+
+              // Step 4: Calculate the offset to center the image within the bounding box
+              const offsetLng = (boundingBoxWidth - scaledWidth) / 2;
+              const offsetLat = (boundingBoxHeight - scaledHeight) / 2;
+
+              // Step 5: Calculate all 4 corners' coordinates
+              const scaledTopLeft = [topLeft.lng + offsetLng, topLeft.lat - offsetLat];
+              const scaledBottomRight = [bottomRight.lng - offsetLng, bottomRight.lat + offsetLat];
+              const scaledTopRight = [scaledBottomRight[0], scaledTopLeft[1]];
+              const scaledBottomLeft = [scaledTopLeft[0], scaledBottomRight[1]];
+
+              return {
+                topLeft: scaledTopLeft,
+                topRight: scaledTopRight,
+                bottomRight: scaledBottomRight,
+                bottomLeft: scaledBottomLeft
+              };
             }
 
-            const corners = getCorners(topLeft.lngLat, bottomRight.lngLat, width, height);
+
+            const { topLeft, bottomLeft, bottomRight, topRight } = getCorners(topLeftClick.lngLat, bottomRightClick.lngLat, width, height);
 
             useDrawStore.getState().setSource({
               corners: {
-                topLeft: corners[0],
-                bottomLeft: corners[1],
-                bottomRight: corners[2],
-                topRight: corners[3],
+                topLeft,
+                bottomLeft,
+                bottomRight,
+                topRight
               }
             });
 
@@ -330,7 +346,7 @@ export default class MapMaplibreGl extends React.Component<MapMaplibreGlProps, M
 
   initGeocoder(map: Map) {
     const geocoderConfig = {
-      forwardGeocode: async (config:{query: string, limit: number, language: string[]}) => {
+      forwardGeocode: async (config: { query: string, limit: number, language: string[] }) => {
         const features = [];
         try {
           const request = `https://nominatim.openstreetmap.org/search?q=${config.query}&format=geojson&polygon_geojson=1&addressdetails=1`;
@@ -339,9 +355,9 @@ export default class MapMaplibreGl extends React.Component<MapMaplibreGlProps, M
           for (const feature of geojson.features) {
             const center = [
               feature.bbox[0] +
-                  (feature.bbox[2] - feature.bbox[0]) / 2,
+              (feature.bbox[2] - feature.bbox[0]) / 2,
               feature.bbox[1] +
-                  (feature.bbox[3] - feature.bbox[1]) / 2
+              (feature.bbox[3] - feature.bbox[1]) / 2
             ];
             const point = {
               type: 'Feature',
@@ -365,7 +381,7 @@ export default class MapMaplibreGl extends React.Component<MapMaplibreGlProps, M
         };
       }
     };
-    const geocoder = new MaplibreGeocoder(geocoderConfig, {maplibregl: MapLibreGl});
+    const geocoder = new MaplibreGeocoder(geocoderConfig, { maplibregl: MapLibreGl });
     map.addControl(geocoder, 'top-left');
   }
 
