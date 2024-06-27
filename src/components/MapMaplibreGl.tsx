@@ -8,7 +8,7 @@ import colors from 'mapbox-gl-inspect/lib/colors'
 import MapMaplibreGlLayerPopup from './MapMaplibreGlLayerPopup'
 import MapMaplibreGlFeaturePropertyPopup, { InspectFeature } from './MapMaplibreGlFeaturePropertyPopup'
 import Color from 'color'
-import MapboxDraw from '@mapbox/mapbox-gl-draw';
+// import MapboxDraw from '@mapbox/mapbox-gl-draw';
 
 import ZoomControl from '../libs/zoomcontrol'
 import LevelSelector from '../libs/levelselector'
