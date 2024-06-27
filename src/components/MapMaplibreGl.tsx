@@ -236,11 +236,6 @@ export default class MapMaplibreGl extends React.Component<MapMaplibreGlProps, M
     map.on("dragend", mapViewChange);
     map.on("zoomend", mapViewChange);
 
-    const draw = new MapboxDraw({
-      displayControlsDefault: false
-    }) as any;
-
-
     let clickEvent: Array<MapMouseEvent> = [];
     map.on('click', (e) => {
       const imageUrl = useDrawStore.getState().source.url;
@@ -309,7 +304,7 @@ export default class MapMaplibreGl extends React.Component<MapMaplibreGlProps, M
       }
     });
 
-    useDrawStore.subscribe((state) => state.isDrawing, (isDrawing) => {
+    useDrawStore.subscribe((state) => state.isDrawing, () => {
       // if (isDrawing) {
       //   map.removeControl(inspect);
       //   map.addControl(draw);
@@ -320,7 +315,7 @@ export default class MapMaplibreGl extends React.Component<MapMaplibreGlProps, M
       // }
     });
 
-    useDrawStore.subscribe((state) => state.drawingMode, (drawingMode) => {
+    useDrawStore.subscribe((state) => state.drawingMode, () => {
       if (useDrawStore.getState().isDrawing) {
         // draw.changeMode(drawingMode || MapboxDraw.constants.modes.SIMPLE_SELECT);
       }
