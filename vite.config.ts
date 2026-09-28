@@ -7,9 +7,6 @@ export default defineConfig(({ mode }) => ({
   server: {
     port: 8888,
   },
-  build: {
-    sourcemap: true
-  },
   plugins: [
     replace({
       preventAssignment: true,
