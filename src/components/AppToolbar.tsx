@@ -1,16 +1,26 @@
-import React from 'react'
-import classnames from 'classnames'
-import {detect} from 'detect-browser';
+import React from "react";
+import classnames from "classnames";
+import {detect} from "detect-browser";
 
-import {MdFileDownload, MdOpenInBrowser, MdSettings, MdLayers, MdHelpOutline, MdFindInPage} from 'react-icons/md'
-import pkgJson from '../../package.json'
-//@ts-ignore
-import maputnikLogo from 'maputnik-design/logos/logo-color.svg?inline'
+import {
+  MdOpenInBrowser,
+  MdSettings,
+  MdLayers,
+  MdHelpOutline,
+  MdFindInPage,
+  MdSave,
+  MdPublic,
+  MdCode
+} from "react-icons/md";
+import pkgJson from "../../package.json";
+import { withTranslation, type WithTranslation } from "react-i18next";
+import type { OnStyleChangedCallback } from "../libs/definitions";
 
 // This is required because of <https://stackoverflow.com/a/49846426>, there isn't another way to detect support that I'm aware of.
 const browser = detect();
-const colorAccessibilityFiltersEnabled = ['chrome', 'firefox'].indexOf(browser!.name) > -1;
+const colorAccessibilityFiltersEnabled = ["chrome", "firefox"].indexOf(browser!.name) > -1;
 
+export type ModalTypes = "settings" | "sources" | "open" | "shortcuts" | "export" | "debug" | "globalState" | "codeEditor";
 
 type IconTextProps = {
   children?: React.ReactNode
@@ -19,7 +29,7 @@ type IconTextProps = {
 
 class IconText extends React.Component<IconTextProps> {
   render() {
-    return <span className="maputnik-icon-text">{this.props.children}</span>
+    return <span className="maputnik-icon-text">{this.props.children}</span>;
   }
 }
 
@@ -27,20 +37,19 @@ type ToolbarLinkProps = {
   className?: string
   children?: React.ReactNode
   href?: string
-  onToggleModal?(...args: unknown[]): unknown
 };
 
 class ToolbarLink extends React.Component<ToolbarLinkProps> {
   render() {
     return <a
-      className={classnames('maputnik-toolbar-link', this.props.className)}
+      className={classnames("maputnik-toolbar-link", this.props.className)}
       href={this.props.href}
       rel="noopener noreferrer"
       target="_blank"
       data-wd-key="toolbar:link"
     >
       {this.props.children}
-    </a>
+    </a>;
   }
 }
 
@@ -56,7 +65,7 @@ class ToolbarSelect extends React.Component<ToolbarSelectProps> {
       data-wd-key={this.props.wdKey}
     >
       {this.props.children}
-    </div>
+    </div>;
   }
 }
 
@@ -74,28 +83,28 @@ class ToolbarAction extends React.Component<ToolbarActionProps> {
       onClick={this.props.onClick}
     >
       {this.props.children}
-    </button>
+    </button>;
   }
 }
 
 export type MapState = "map" | "inspect" | "filter-achromatopsia" | "filter-deuteranopia" | "filter-protanopia" | "filter-tritanopia";
 
-type AppToolbarProps = {
+type AppToolbarInternalProps = {
   mapStyle: object
   inspectModeEnabled: boolean
-  onStyleChanged(...args: unknown[]): unknown
+  onStyleChanged: OnStyleChangedCallback
   // A new style has been uploaded
-  onStyleOpen(...args: unknown[]): unknown
+  onStyleOpen: OnStyleChangedCallback
   // A dict of source id's and the available source layers
   sources: object
   children?: React.ReactNode
-  onToggleModal(...args: unknown[]): unknown
+  onToggleModal(modal: ModalTypes): void
   onSetMapState(mapState: MapState): unknown
   mapState?: MapState
   renderer?: string
-};
+} & WithTranslation;
 
-export default class AppToolbar extends React.Component<AppToolbarProps> {
+class AppToolbarInternal extends React.Component<AppToolbarInternalProps> {
   state = {
     isOpen: {
       settings: false,
@@ -104,7 +113,7 @@ export default class AppToolbar extends React.Component<AppToolbarProps> {
       add: false,
       export: false,
     }
-  }
+  };
 
   handleSelection(val: MapState) {
     this.props.onSetMapState(val);
@@ -118,43 +127,44 @@ export default class AppToolbar extends React.Component<AppToolbarProps> {
       const el = document.querySelector("#skip-target-"+target) as HTMLButtonElement;
       el.focus();
     }
-  }
+  };
 
   render() {
+    const t = this.props.t;
     const views = [
       {
         id: "map",
         group: "general",
-        title: "Map",
+        title: t("Map"),
       },
       {
         id: "inspect",
         group: "general",
-        title: "Inspect",
-        disabled: this.props.renderer === 'ol',
+        title: t("Inspect"),
+        disabled: this.props.renderer === "ol",
       },
       {
         id: "filter-deuteranopia",
         group: "color-accessibility",
-        title: "Deuteranopia filter",
+        title: t("Deuteranopia filter"),
         disabled: !colorAccessibilityFiltersEnabled,
       },
       {
         id: "filter-protanopia",
         group: "color-accessibility",
-        title: "Protanopia filter",
+        title: t("Protanopia filter"),
         disabled: !colorAccessibilityFiltersEnabled,
       },
       {
         id: "filter-tritanopia",
         group: "color-accessibility",
-        title: "Tritanopia filter",
+        title: t("Tritanopia filter"),
         disabled: !colorAccessibilityFiltersEnabled,
       },
       {
         id: "filter-achromatopsia",
         group: "color-accessibility",
-        title: "Achromatopsia filter",
+        title: t("Achromatopsia filter"),
         disabled: !colorAccessibilityFiltersEnabled,
       },
     ];
@@ -174,56 +184,63 @@ export default class AppToolbar extends React.Component<AppToolbarProps> {
             className="maputnik-toolbar-skip"
             onClick={_e => this.onSkip("layer-list")}
           >
-            Layers list
+            {t("Layers list")}
           </button>
           <button
             data-wd-key="root:skip:layer-editor"
             className="maputnik-toolbar-skip"
             onClick={_e => this.onSkip("layer-editor")}
           >
-            Layer editor
+            {t("Layer editor")}
           </button>
           <button
             data-wd-key="root:skip:map-view"
             className="maputnik-toolbar-skip"
             onClick={_e => this.onSkip("map")}
           >
-            Map view
+            {t("Map view")}
           </button>
           <a
             className="maputnik-toolbar-logo"
             target="blank"
             rel="noreferrer noopener"
-            href="https://github.com/maplibre/maputnik"
+            href="#"
           >
-            <img src={maputnikLogo} alt="Maputnik on GitHub" />
             <h1>
-              <span className="maputnik-toolbar-name">{pkgJson.name}</span>
+              <span className="maputnik-toolbar-name">Maputnik Indoor</span>
               <span className="maputnik-toolbar-version">v{pkgJson.version}</span>
             </h1>
           </a>
         </div>
         <div className="maputnik-toolbar__actions" role="navigation" aria-label="Toolbar">
-          <ToolbarAction wdKey="nav:open" onClick={this.props.onToggleModal.bind(this, 'open')}>
+          <ToolbarAction wdKey="nav:open" onClick={() => this.props.onToggleModal("open")}>
             <MdOpenInBrowser />
-            <IconText>Open</IconText>
+            <IconText>{t("Open")}</IconText>
           </ToolbarAction>
-          <ToolbarAction wdKey="nav:export" onClick={this.props.onToggleModal.bind(this, 'export')}>
-            <MdFileDownload />
-            <IconText>Export</IconText>
+          <ToolbarAction wdKey="nav:export" onClick={() => this.props.onToggleModal("export")}>
+            <MdSave />
+            <IconText>{t("Save")}</IconText>
           </ToolbarAction>
-          <ToolbarAction wdKey="nav:sources" onClick={this.props.onToggleModal.bind(this, 'sources')}>
+          <ToolbarAction wdKey="nav:code-editor" onClick={() => this.props.onToggleModal("codeEditor")}>
+            <MdCode />
+            <IconText>{t("Code Editor")}</IconText>
+          </ToolbarAction>
+          <ToolbarAction wdKey="nav:sources" onClick={() => this.props.onToggleModal("sources")}>
             <MdLayers />
-            <IconText>Data Sources</IconText>
+            <IconText>{t("Data Sources")}</IconText>
           </ToolbarAction>
-          <ToolbarAction wdKey="nav:settings" onClick={this.props.onToggleModal.bind(this, 'settings')}>
+          <ToolbarAction wdKey="nav:settings" onClick={() => this.props.onToggleModal("settings")}>
             <MdSettings />
-            <IconText>Style Settings</IconText>
+            <IconText>{t("Style Settings")}</IconText>
+          </ToolbarAction>
+          <ToolbarAction wdKey="nav:global-state" onClick={() => this.props.onToggleModal("globalState")}>
+            <MdPublic />
+            <IconText>{t("Global State")}</IconText>
           </ToolbarAction>
 
           <ToolbarSelect wdKey="nav:inspect">
             <MdFindInPage />
-            <label>View
+            <IconText>{t("View")}
               <select
                 className="maputnik-select"
                 data-wd-key="maputnik-select"
@@ -237,7 +254,7 @@ export default class AppToolbar extends React.Component<AppToolbarProps> {
                     </option>
                   );
                 })}
-                <optgroup label="Color accessibility">
+                <optgroup label={t("Color accessibility")}>
                   {views.filter(v => v.group === "color-accessibility").map((item) => {
                     return (
                       <option key={item.id} value={item.id} disabled={item.disabled}>
@@ -247,14 +264,18 @@ export default class AppToolbar extends React.Component<AppToolbarProps> {
                   })}
                 </optgroup>
               </select>
-            </label>
+            </IconText>
           </ToolbarSelect>
+
           <ToolbarLink href={"https://github.com/maplibre/maputnik/wiki"}>
             <MdHelpOutline />
-            <IconText>Help</IconText>
+            <IconText>{t("Help")}</IconText>
           </ToolbarLink>
         </div>
       </div>
-    </nav>
+    </nav>;
   }
 }
+
+const AppToolbar = withTranslation()(AppToolbarInternal);
+export default AppToolbar;

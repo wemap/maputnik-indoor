@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Maputnik</title>
+  <title>Maputnik Indoor</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="manifest" href="src/manifest.json">
   <link rel="icon" href="src/favicon.ico" type="image/x-icon" />
   <style>
     html {
-      background-color: rgb(28, 31, 36);
+      background-color: rgb(26, 26, 26);
     }
 
     .loading {
@@ -24,9 +24,13 @@
       align-items: center;
     }
 
-    .loading__logo img {
-      width: 200px;
-      height: 200px;
+    .loading__name {
+      font-family: sans-serif;
+      color: white;
+      font-size: 48px;
+      font-weight: bold;
+      text-transform: capitalize;
+      margin: 0 0 0.4em;
     }
 
     .loading__text {
@@ -122,9 +126,7 @@
 
   <div id="app"></div>
   <div class="loading">
-    <div class="loading__logo">
-      <img inline src="node_modules/maputnik-design/logos/logo-loading.svg" />
-    </div>
+    <h1 class="loading__name">Maputnik Indoor</h1>
     <div class="loading__text">Loading&hellip;</div>
   </div>
   <script type="module" src="/src/index.jsx"></script>

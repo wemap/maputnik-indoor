@@ -1,14 +1,14 @@
+@use "mixins";
+@use "vars";
+
 @use 'sass:color';
 // MAP
 .maputnik-map__container {
   background: white;
   display: flex;
-  position: fixed !important;
-  top: $toolbar-height + $toolbar-offset;
-  right: 0;
-  bottom: 0;
-  height: calc(100% - #{$toolbar-height + $toolbar-offset});
-  width: $layout-map-width;
+  flex: 1;
+  width: 100%;
+  height: 100%;
 
   &--error {
     align-items: center;
@@ -21,9 +21,53 @@
   }
 }
 
+.maputnik-map__wrapper {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+}
+
 .maputnik-map__map {
   width: 100%;
   height: 100%;
+}
+
+// The gizmo overlay for the selected image source's position/size/rotation
+// (see MapMaplibreGl's renderImageGizmo). Purely visual - pointer-events:
+// none so it never blocks the map's own mouse handling, which is what does
+// the actual hit-testing (hitTestGizmo in libs/image-position.ts) and drives
+// the hover cursors. Drawn as an SVG polygon (not a CSS-rotated rectangle)
+// so it renders as the correct trapezoid under any map pitch, rather than
+// a flat rectangle that drifts away from the actual (perspective-warped)
+// image underneath it. No permanent handles are drawn on purpose: just a
+// checkerboard placeholder (until the real image has loaded, at which point
+// renderImageGizmo drops the fill), a thin selection border, and a center
+// cross - see renderImageGizmo for the polygon/pattern/cross themselves.
+//
+// Explicit z-index so it stacks in a known, low position: it's a sibling of
+// .maputnik-map__map that comes after it in the DOM, so without this it
+// would otherwise paint over anything unpositioned/auto-stacked inside the
+// map - including the maplibre-gl-inspect "which layers are here" popup,
+// which can still appear for a click that lands near an image without
+// hitting it directly (see MapMaplibreGl's suppressInspectPopupUntilGestureEnd,
+// which only covers clicks that do hit one). The popup override just below
+// pins it above this.
+.maputnik-image-gizmo {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+// See the note above .maputnik-image-gizmo: without this, MapLibre's own
+// popup (position: absolute, no z-index of its own) can end up rendered
+// underneath the gizmo overlay, visually clipped by it. Scoped under our
+// own wrapper class (rather than overriding .maplibregl-popup globally) so
+// this wins on specificity regardless of the CSS import order between this
+// stylesheet and maplibre-gl's own.
+.maputnik-map__wrapper .maplibregl-popup {
+  z-index: 2;
 }
 
 .maputnik-input-block:hover,
@@ -41,7 +85,7 @@
   &-wrapper {
     display: inline-block;
     box-sizing: border-box;
-    font-size: $font-size-6;
+    font-size: vars.$font-size-6;
     line-height: 2;
     user-select: none;
     position: relative;
@@ -50,9 +94,9 @@
 
   &-popup {
     display: none;
-    color: $color-lowgray;
-    background-color: $color-gray;
-    padding: $margin-2;
+    color: vars.$color-lowgray;
+    background-color: vars.$color-gray;
+    padding: vars.$margin-2;
     font-size: 10px;
     position: absolute;
     top: 20px;
@@ -65,7 +109,7 @@
   &-button {
     opacity: 0;
     pointer-events: none;
-    background: $color-black;
+    background: vars.$color-black;
     color: white;
     border: none;
     padding: 4px;
@@ -82,11 +126,11 @@
 }
 
 .maputnik-doc-inline {
-  color: $color-lowgray;
-  background-color: $color-gray;
-  padding: $margin-2;
+  color: vars.$color-lowgray;
+  background-color: vars.$color-gray;
+  padding: vars.$margin-2;
   font-size: 12px;
-  margin-top: $margin-3;
+  margin-top: vars.$margin-3;
   line-height: 1.5;
   flex: 1 0;
 }
@@ -100,10 +144,10 @@
 .maputnik-button {
   display: inline-block;
   cursor: pointer;
-  background-color: $color-midgray;
-  color: $color-lowgray;
-  font-size: $font-size-6;
-  padding: $margin-2;
+  background-color: vars.$color-midgray;
+  color: vars.$color-lowgray;
+  font-size: vars.$font-size-6;
+  padding: vars.$margin-2;
   user-select: none;
   border-width: 0;
   border-radius: 2px;
@@ -111,36 +155,36 @@
   text-decoration: none;
 
   &:hover {
-    background-color: color.adjust($color-midgray, $lightness: 12%);
-    color: $color-white;
+    background-color: color.adjust(vars.$color-midgray, $lightness: 12%);
+    color: vars.$color-white;
   }
 
   &:disabled {
-    background-color: color.adjust($color-midgray, $lightness: -5%);
-    color: $color-midgray;
+    background-color: color.adjust(vars.$color-midgray, $lightness: -5%);
+    color: vars.$color-midgray;
     cursor: not-allowed;
   }
 }
 
 .maputnik-big-button {
-  margin-top: $margin-3;
+  margin-top: vars.$margin-3;
   display: inline-block;
-  padding: $margin-3;
-  font-size: $font-size-5;
+  padding: vars.$margin-3;
+  font-size: vars.$font-size-5;
 }
 
 .maputnik-wide-button {
-  padding: $margin-2 $margin-3;
+  padding: vars.$margin-2 vars.$margin-3;
 }
 
 .maputnik-green-button {
-  background-color: $color-green;
-  color: $color-black;
+  background-color: vars.$color-green;
+  color: vars.$color-black;
 }
 
 .maputnik-white-button {
-  background-color: $color-white;
-  color: $color-black;
+  background-color: vars.$color-white;
+  color: vars.$color-black;
 }
 
 .maputnik-icon-button {
@@ -155,19 +199,28 @@
     }
 
     svg {
-      fill: $color-white;
+      // !important beats the inline `color` style react-icons writes on
+      // every icon from the IconContext.Provider in LayerEditor.tsx (e.g.
+      // color: #8e8e8e) - a plain rule can't win against an inline style.
+      // Setting `color` (not `fill`) lets each icon's own currentColor
+      // wiring do the right thing: fill-based icons (e.g. MdFunctions)
+      // brighten via fill="currentColor", and stroke-based icons (e.g.
+      // TbMathFunction, which deliberately has fill="none") brighten via
+      // stroke="currentColor" without their fill being forced on - forcing
+      // fill on a stroke-only icon fills in its open path as a solid blob.
+      color: vars.$color-white !important;
     }
   }
 }
 
 // INPUT BLOCK
 .maputnik-input-block {
-  margin: $margin-3;
+  margin: vars.$margin-3;
   display: flex;
   flex-wrap: wrap;
 
   &-label {
-    color: $color-lowgray;
+    color: vars.$color-lowgray;
     user-select: none;
     width: 32%;
     vertical-align: top;
@@ -175,7 +228,7 @@
   }
 
   &-action {
-    color: $color-lowgray;
+    color: vars.$color-lowgray;
     user-select: none;
     width: 18%;
     vertical-align: top;
@@ -192,7 +245,7 @@
   .maputnik-input-block-label {
     display: inline-block;
     width: 32%;
-    margin-bottom: $margin-3;
+    margin-bottom: vars.$margin-3;
   }
 
   .maputnik-input-block-action {
@@ -216,15 +269,15 @@
 
 // SPACE HELPER
 .maputnik-space {
-  @include vendor-prefix(flex-grow, 1);
+  @include mixins.vendor-prefix(flex-grow, 1);
 }
 
 // MESSAGE PANEL
 .maputnik-message-panel {
-  padding: $margin-2;
+  padding: vars.$margin-2;
 
   &-error {
-    color: $color-red;
+    color: vars.$color-red;
   }
 
   &__switch-button {
@@ -246,7 +299,7 @@
   &__menu {
     position: absolute;
     z-index: 999999;
-    background: $color-black;
+    background: vars.$color-black;
     display: flex;
     flex-direction: column;
     align-content: stretch;
@@ -267,13 +320,13 @@
   color: #a4a4a4;
   padding: 0.4em 0.4em;
   font-size: 0.9em;
-  border: solid 1px $color-red;
+  border: solid 1px vars.$color-red;
   border-radius: 2px;
-  margin: $margin-2 0px;
+  margin: vars.$margin-2 0px;
 }
 
 .maputnik-expression-editor {
-  border: solid 1px $color-gray;
+  border: solid 1px vars.$color-gray;
 }
 
 .maputnik-input-block--wide {
@@ -292,14 +345,20 @@
   }
 }
 
+.maputnik-input-block--error {
+  .maputnik-input-block-label {
+    color: vars.$color-red;
+  }
+}
+
 .maputnik-expr-infobox {
-  font-size: $font-size-6;
-  background: $color-midgray;
-  padding: $margin-2;
+  font-size: vars.$font-size-6;
+  background: vars.$color-midgray;
+  padding: vars.$margin-2;
   border-radius: 2px;
   border-top-right-radius: 0px;
   border-top-left-radius: 0px;
-  color: $color-white;
+  color: vars.$color-white;
 }
 
 .maputnik-expr-infobox__button {
@@ -311,3 +370,46 @@
   cursor: pointer;
 }
 
+// Read-only values in the "Image position" layer editor group (source id,
+// url, corner coordinates) - see ImagePositionEditor. Small and breakable so
+// a long url or a coordinate pair never pushes the panel wider than its
+// column.
+.maputnik-image-position-editor__value {
+  font-size: vars.$font-size-6;
+  color: vars.$color-lowgray;
+  word-break: break-all;
+}
+
+// The Pivot row's two coordinate fields (longitude/latitude), shown side by
+// side instead of stacked - see ImagePositionEditor.
+.maputnik-image-position-editor__pivot-inputs {
+  display: flex;
+  gap: vars.$margin-2;
+
+  > * {
+    min-width: 0;
+  }
+}
+
+// Wraps the read-only value shown in the Pivot row once it's fixed - an
+// <input> vertically centers its text within its own box (that's native
+// UA rendering, not something a line-height tweak on the input can change),
+// while the plain <span> used everywhere else for read-only values simply
+// sits at the top of its line. Matching that same height + centering here
+// keeps the digits from visibly jumping a few pixels every time the lock
+// is toggled between the editable/read-only versions of this one row.
+.maputnik-image-position-editor__pivot-value {
+  display: flex;
+  align-items: center;
+  height: 24px;
+}
+
+// The Pivot row's lock icon (toggles "fixed") - unlike .maputnik-button's
+// default look, it has no background of its own in either state, only the
+// icon brightening on hover, same as the other plain icon buttons (e.g.
+// "convert to expression" on the opacity paint property) - the open/closed
+// icon itself (see ImagePositionEditor) is what signals fixed vs not, so a
+// background highlight on top of that would be redundant.
+.maputnik-pivot-lock-button {
+  @extend .maputnik-icon-button !optional; /* stylelint-disable-line */
+}

@@ -18,8 +18,14 @@ targeted at developers and map designers.
 - In a Docker, run this command and browse to http://localhost:8888, Ctrl+C to stop the server.
 
 ```bash
-docker run -it --rm -p 8888:80 ghcr.io/maplibre/maputnik:main
+docker run -it --rm -p 8888:8000 ghcr.io/maplibre/maputnik:main
 ```
+
+To see the CLI options (for example file watching or style serving) run:
+```bash
+docker run -it --rm -p 8888:8000 ghcr.io/maplibre/maputnik:main --help
+```
+You might need to mount a volume (`-v`) to be able to use these options.
 
 ## Documentation
 
@@ -35,6 +41,8 @@ The documentation can be found in the [Wiki](https://github.com/maplibre/maputni
 Maputnik is written in typescript and is using [React](https://github.com/facebook/react) and [MapLibre GL JS](https://maplibre.org/projects/maplibre-gl-js/).
 
 We ensure building and developing Maputnik works with the [current active LTS Node.js version and above](https://github.com/nodejs/Release#release-schedule).
+
+Check out our [Internationalization guide](./src/locales/README.md) for UI text related changes.
 
 ### Getting Involved
 Join the #maplibre or #maputnik slack channel at OSMUS: get an invite at https://slack.openstreetmap.us/ Read the the below guide in order to get familiar with how we do things around here.
@@ -66,14 +74,14 @@ Lint the JavaScript code.
 ```
 # run linter
 npm run lint
-npm run lint-styles
+npm run lint-css
+npm run sort-styles
 ```
-
 
 ## Tests
 For E2E testing we use [Cypress](https://www.cypress.io/)
 
- [Cypress](https://www.cypress.io/) doesn't starts a server so you'll need to start one manually by running `npm run start`.
+ [Cypress](https://www.cypress.io/) doesn't start a server so you'll need to start one manually by running `npm run start`.
 
 Now open a terminal and run the following using *chrome*:
 
@@ -93,10 +101,15 @@ You can also see the tests as they run or select which suites to run by executin
 npm run cy:open
 ```
 
+## Release process
 
-## Related Projects
+1. Review [`CHANGELOG.md`](/CHANGELOG.md)
+   - Double-check that all changes included in the release are appropriately documented.
+   - To-be-released changes should be under the "main" header.
+   - Commit any final changes to the changelog.
+2. Run [Create bump version PR](https://github.com/maplibre/maputnik/actions/workflows/create-bump-version-pr.yml) by manual workflow dispatch and set the version number in the input. This will create a PR that changes the changelog and `package.json` file to review and merge.
+3. Once merged, an automatic process will kick in and creates a GitHub release and uploads release assets.
 
-- [maputnik-dev-server](https://github.com/nycplanning/labs-maputnik-dev-server) - An express.js server that allows for quickly loading the style from any mapboxGL map into mapuntnik.
 
 ## Sponsors
 

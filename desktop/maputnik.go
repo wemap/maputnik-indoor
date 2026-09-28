@@ -5,8 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-
-        "github.com/GeertJohan/go.rice"
+    "github.com/GeertJohan/go.rice"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"github.com/maputnik/desktop/filewatch"
@@ -17,7 +16,7 @@ func main() {
 	app := cli.NewApp()
 	app.Name = "maputnik"
 	app.Usage = "Server for integrating Maputnik locally"
-	app.Version = "Editor: 1.7.0; Desktop: 1.1.0"
+	app.Version = Version
 
 	app.Flags = []cli.Flag{
 		&cli.StringFlag{
@@ -40,7 +39,7 @@ func main() {
 	}
 
 	app.Action = func(c *cli.Context) error {
-		gui := http.FileServer(rice.MustFindBox("editor/public").HTTPBox())
+		gui := http.FileServer(rice.MustFindBox("editor").HTTPBox())
 
 		router := mux.NewRouter().StrictSlash(true)
 

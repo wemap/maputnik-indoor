@@ -1,37 +1,39 @@
-import React from 'react'
+import React from "react";
 
-import {latest} from '@maplibre/maplibre-gl-style-spec'
-import Block from './Block'
-import InputAutocomplete from './InputAutocomplete'
+import {latest} from "@maplibre/maplibre-gl-style-spec";
+import Block from "./Block";
+import InputAutocomplete from "./InputAutocomplete";
+import { type WithTranslation, withTranslation } from "react-i18next";
 
-type FieldSourceLayerProps = {
+type FieldSourceLayerInternalProps = {
   value?: string
   onChange?(...args: unknown[]): unknown
   sourceLayerIds?: unknown[]
-  isFixed?: boolean
   error?: {message: string}
-};
+} & WithTranslation;
 
-export default class FieldSourceLayer extends React.Component<FieldSourceLayerProps> {
-  static defaultProps = {
-    onChange: () => {},
-    sourceLayerIds: [],
-    isFixed: false
-  }
-
-  render() {
-    return <Block 
-      label={"Source Layer"} 
-      fieldSpec={latest.layer['source-layer']}
+const FieldSourceLayerInternal: React.FC<FieldSourceLayerInternalProps> = ({
+  onChange = () => {},
+  sourceLayerIds = [],
+  value,
+  error,
+  t
+}) => {
+  return (
+    <Block
+      label={t("Source Layer")}
+      fieldSpec={latest.layer["source-layer"]}
       data-wd-key="layer-source-layer"
-      error={this.props.error}
+      error={error}
     >
       <InputAutocomplete
-        keepMenuWithinWindowBounds={!!this.props.isFixed}
-        value={this.props.value}
-        onChange={this.props.onChange}
-        options={this.props.sourceLayerIds?.map(l => [l, l])}
+        value={value}
+        onChange={onChange}
+        options={sourceLayerIds?.map((l) => [l, l])}
       />
     </Block>
-  }
-}
+  );
+};
+
+const FieldSourceLayer = withTranslation()(FieldSourceLayerInternal);
+export default FieldSourceLayer;

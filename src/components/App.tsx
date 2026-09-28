@@ -1,51 +1,46 @@
-// @ts-ignore - this can be easily replaced with arrow functions
-import autoBind from 'react-autobind';
-import React from 'react'
-import cloneDeep from 'lodash.clonedeep'
-import clamp from 'lodash.clamp'
-import buffer from 'buffer'
-import get from 'lodash.get'
-import {unset} from 'lodash'
-import {arrayMoveMutable} from 'array-move'
+import React from "react";
+import cloneDeep from "lodash.clonedeep";
+import clamp from "lodash.clamp";
+import buffer from "buffer";
+import get from "lodash.get";
+import {unset} from "lodash";
+import {arrayMoveMutable} from "array-move";
 import hash from "string-hash";
-import {Map, LayerSpecification, StyleSpecification, ValidationError, SourceSpecification} from 'maplibre-gl'
-import {latest, validateStyleMin} from '@maplibre/maplibre-gl-style-spec'
+import { PMTiles } from "pmtiles";
+import {type Map, type LayerSpecification, type StyleSpecification, type ValidationError, type SourceSpecification} from "maplibre-gl";
+import {validateStyleMin} from "@maplibre/maplibre-gl-style-spec";
+import latest from "@maplibre/maplibre-gl-style-spec/dist/latest.json";
 
-import MapMaplibreGl from './MapMaplibreGl'
-import MapOpenLayers from './MapOpenLayers'
-import LayerList from './LayerList'
-import LayerEditor from './LayerEditor'
-import AppToolbar, { MapState } from './AppToolbar'
-import AppLayout from './AppLayout'
-import MessagePanel from './AppMessagePanel'
+import MapMaplibreGl from "./MapMaplibreGl";
+import MapOpenLayers from "./MapOpenLayers";
+import CodeEditor from "./CodeEditor";
+import LayerList from "./LayerList";
+import LayerEditor from "./LayerEditor";
+import AppToolbar, { type MapState } from "./AppToolbar";
+import AppLayout from "./AppLayout";
+import MessagePanel from "./AppMessagePanel";
 
-import ModalSettings from './ModalSettings'
-import ModalExport from './ModalExport'
-import ModalSources from './ModalSources'
-import ModalOpen from './ModalOpen'
-import ModalShortcuts from './ModalShortcuts'
-import ModalSurvey from './ModalSurvey'
-import ModalDebug from './ModalDebug'
+import ModalSettings from "./modals/ModalSettings";
+import ModalExport from "./modals/ModalExport";
+import ModalSources from "./modals/ModalSources";
+import ModalOpen from "./modals/ModalOpen";
+import ModalShortcuts from "./modals/ModalShortcuts";
+import ModalDebug from "./modals/ModalDebug";
+import ModalGlobalState from "./modals/ModalGlobalState";
 
-import {downloadGlyphsMetadata, downloadSpriteMetadata} from '../libs/metadata'
-import style from '../libs/style'
-import { initialStyleUrl, loadStyleUrl, removeStyleQuerystring } from '../libs/urlopen'
-import { undoMessages, redoMessages } from '../libs/diffmessage'
-import { StyleStore } from '../libs/stylestore'
-import { ApiStyleStore } from '../libs/apistore'
-import { RevisionStore } from '../libs/revisions'
-import LayerWatcher from '../libs/layerwatcher'
-import tokens from '../config/tokens.json'
-import isEqual from 'lodash.isequal'
-import Debug from '../libs/debug'
-import { SortEnd } from 'react-sortable-hoc';
-import { MapOptions } from 'maplibre-gl';
-import { create } from 'zustand';
-import {
-  subscribeWithSelector
-} from 'zustand/middleware';
-import MapboxDraw from '@mapbox/mapbox-gl-draw';
-import { addSource } from '../libs/source';
+import {downloadGlyphsMetadata, downloadSpriteMetadata} from "../libs/metadata";
+import style from "../libs/style";
+import { duplicateLayerAsType, createImageRasterLayer, buildDuplicateId } from "../libs/layer";
+import { cleanIndoorLevelBlocks } from "../libs/legacy-level";
+import { addSource, changeSource } from "../libs/source";
+import { undoMessages, redoMessages } from "../libs/diffmessage";
+import { createStyleStore, type IStyleStore } from "../libs/store/style-store-factory";
+import { RevisionStore } from "../libs/revisions";
+import LayerWatcher from "../libs/layerwatcher";
+import tokens from "../config/tokens.json";
+import isEqual from "lodash.isequal";
+import { type MapOptions } from "maplibre-gl";
+import { type MappedError, type OnStyleChangedOpts, type StyleSpecificationWithId } from "../libs/definitions";
 
 // Buffer must be defined globally for @maplibre/maplibre-gl-style-spec validate() function to succeed.
 window.Buffer = buffer.Buffer;
@@ -54,16 +49,23 @@ function setFetchAccessToken(url: string, mapStyle: StyleSpecification) {
   const matchesTilehosting = url.match(/\.tilehosting\.com/);
   const matchesMaptiler = url.match(/\.maptiler\.com/);
   const matchesThunderforest = url.match(/\.thunderforest\.com/);
+  const matchesLocationIQ = url.match(/\.locationiq\.com/);
   if (matchesTilehosting || matchesMaptiler) {
-    const accessToken = style.getAccessToken("openmaptiles", mapStyle, {allowFallback: true})
+    const accessToken = style.getAccessToken("openmaptiles", mapStyle, {allowFallback: true});
     if (accessToken) {
-      return url.replace('{key}', accessToken)
+      return url.replace("{key}", accessToken);
     }
   }
   else if (matchesThunderforest) {
-    const accessToken = style.getAccessToken("thunderforest", mapStyle, {allowFallback: true})
+    const accessToken = style.getAccessToken("thunderforest", mapStyle, {allowFallback: true});
     if (accessToken) {
-      return url.replace('{key}', accessToken)
+      return url.replace("{key}", accessToken);
+    }
+  }
+  else if (matchesLocationIQ) {
+    const accessToken = style.getAccessToken("locationiq", mapStyle, {allowFallback: true});
+    if (accessToken) {
+      return url.replace("{key}", accessToken);
     }
   }
   else {
@@ -81,51 +83,30 @@ function updateRootSpec(spec: any, fieldName: string, newValues: any) {
         values: newValues
       }
     }
-  }
-}
-
-function hasFilterWithLevel(filter: any[]): boolean {
-  return filter[0] === 'all' && filter[1] && filter[2]
-    && filter[2][0] === 'any' && filter[2][1] && filter[2][1][0] === '=='
-    && filter[2][1][1][0] === 'get' && filter[2][1][1][1] === 'level';
-}
-
-
-type OnStyleChangedOpts = {
-  save?: boolean
-  addRevision?: boolean
-  initialLoad?: boolean
-}
-
-type MappedErrors = {
-  message: string
-  parsed?: {
-    type: string
-    data: {
-      index: number
-      key: string
-      message: string
-    }
-  }
+  };
 }
 
 type AppState = {
-  errors: MappedErrors[],
+  errors: MappedError[],
   infos: string[],
-  mapStyle: StyleSpecification & {id: string},
+  mapStyle: StyleSpecificationWithId,
   dirtyMapStyle?: StyleSpecification,
   selectedLayerIndex: number,
   selectedLayerOriginalId?: string,
-  sources: {[key: string]: SourceSpecification},
+  sources: {[key: string]: SourceSpecification & {layers: string[]} },
+  // An image source that's been submitted from "Add Source" but not written
+  // into the style yet - it's waiting for its placement click on the map
+  // (see onImageSourcePlacementStart/onImagePlaced).
+  pendingImagePlacement: { sourceId: string; source: SourceSpecification } | null,
   vectorLayers: {},
   spec: any,
-  currentLevel: number,
   mapView: {
     zoom: number,
     center: {
       lng: number,
       lat: number,
     },
+    _from: "map" | "app"
   },
   maplibreGlDebugOptions: Partial<MapOptions> & {
     showTileBoundaries: boolean,
@@ -142,91 +123,69 @@ type AppState = {
     open: boolean
     shortcuts: boolean
     export: boolean
-    survey: boolean
     debug: boolean
+    globalState: boolean
+    codeEditor: boolean
   }
-}
-
-type DrawStoreValue = {
-  setCorners(corners: {
-    topLeft: number[]
-    topRight: number[]
-    bottomRight: number[]
-    bottomLeft: number[]
-  } | null): void
-  startDrawRect(): void
-  setSource(sourcePartial: Record<string, any>): void
-  stopDrawing(): void
-  isDrawing: boolean
-  source: Record<string, any>
-  drawingMode: string | null
-  corners: {
-    topLeft: number[]
-    topRight: number[]
-    bottomRight: number[]
-    bottomLeft: number[]
-  } | null;
-}
-
-export const useDrawStore = create<
-DrawStoreValue,
-[['zustand/subscribeWithSelector', never]]
->(subscribeWithSelector((set, get) => ({
-  isDrawing: false,
-  corners: null,
-  source: {},
-  drawingMode: null,
-  setCorners: (corners) => {
-    set({
-      corners
-    })
-  },
-  setSource: (sourcePartial: Record<string, any>) => {
-    set({
-      source: {
-        ...get().source,
-        ...sourcePartial
-      }
-    })
-  },
-  startDrawRect: () => {
-    set({
-      isDrawing: true,
-      drawingMode: MapboxDraw.constants.modes.DRAW_POLYGON
-    })
-  },
-  stopDrawing: () => {
-    set({
-      source: {},
-      isDrawing: false,
-      drawingMode: MapboxDraw.constants.modes.SIMPLE_SELECT
-    })
-  }
-})));
+  fileHandle: FileSystemFileHandle | null
+};
 
 export default class App extends React.Component<any, AppState> {
   revisionStore: RevisionStore;
-  styleStore: StyleStore | ApiStyleStore;
+  styleStore: IStyleStore | null = null;
   layerWatcher: LayerWatcher;
-  shortcutEl: ModalShortcuts | null = null;
 
   constructor(props: any) {
-    super(props)
-    autoBind(this);
+    super(props);
 
-    this.revisionStore = new RevisionStore()
-    const params = new URLSearchParams(window.location.search.substring(1))
-    let port = params.get("localport")
-    if (port == null && (window.location.port !== "80" && window.location.port !== "443")) {
-      port = window.location.port
-    }
-    this.styleStore = new ApiStyleStore({
-      onLocalStyleChange: mapStyle => this.onStyleChanged(mapStyle, {save: false}),
-      port: port,
-      host: params.get("localhost")
-    })
+    this.revisionStore = new RevisionStore();
+    this.configureKeyboardShortcuts();
 
+    this.state = {
+      errors: [],
+      infos: [],
+      mapStyle: style.emptyStyle,
+      selectedLayerIndex: 0,
+      sources: {},
+      pendingImagePlacement: null,
+      vectorLayers: {},
+      mapState: "map",
+      spec: latest,
+      mapView: {
+        zoom: 0,
+        center: {
+          lng: 0,
+          lat: 0,
+        },
+        _from: "app"
+      },
+      isOpen: {
+        settings: false,
+        sources: false,
+        open: false,
+        shortcuts: false,
+        export: false,
+        debug: false,
+        globalState: false,
+        codeEditor: false
+      },
+      maplibreGlDebugOptions: {
+        showTileBoundaries: false,
+        showCollisionBoxes: false,
+        showOverdrawInspector: false,
+      },
+      openlayersDebugOptions: {
+        debugToolbox: false,
+      },
+      fileHandle: null,
+    };
 
+    this.layerWatcher = new LayerWatcher({
+      onVectorLayersChange: v => this.setState({ vectorLayers: v })
+    });
+  }
+
+  configureKeyboardShortcuts = () => {
     const shortcuts = [
       {
         key: "?",
@@ -259,6 +218,12 @@ export default class App extends React.Component<any, AppState> {
         }
       },
       {
+        key: "g",
+        handler: () => {
+          this.toggleModal("globalState");
+        }
+      },
+      {
         key: "i",
         handler: () => {
           this.setMapState(
@@ -278,97 +243,31 @@ export default class App extends React.Component<any, AppState> {
           this.toggleModal("debug");
         }
       },
-    ]
+    ];
 
     document.body.addEventListener("keyup", (e) => {
       if(e.key === "Escape") {
+        if (this.state.pendingImagePlacement) {
+          this.onImagePlacementCancel();
+        }
         (e.target as HTMLElement).blur();
         document.body.focus();
       }
       else if(this.state.isOpen.shortcuts || document.activeElement === document.body) {
         const shortcut = shortcuts.find((shortcut) => {
-          return (shortcut.key === e.key)
-        })
+          return (shortcut.key === e.key);
+        });
 
         if(shortcut) {
           this.setModal("shortcuts", false);
           shortcut.handler();
         }
       }
-    })
-
-    const styleUrl = initialStyleUrl()
-    if(styleUrl && window.confirm("Load style from URL: " + styleUrl + " and discard current changes?")) {
-      this.styleStore = new StyleStore()
-      loadStyleUrl(styleUrl, mapStyle => this.onStyleChanged(mapStyle))
-      removeStyleQuerystring()
-    } else {
-      if(styleUrl) {
-        removeStyleQuerystring()
-      }
-      this.styleStore.init(err => {
-        if(err) {
-          console.log('Falling back to local storage for storing styles')
-          this.styleStore = new StyleStore()
-        }
-        this.styleStore.latestStyle(mapStyle => this.onStyleChanged(mapStyle, {initialLoad: true}))
-
-        if(Debug.enabled()) {
-          Debug.set("maputnik", "styleStore", this.styleStore);
-          Debug.set("maputnik", "revisionStore", this.revisionStore);
-        }
-      })
-    }
-
-    if(Debug.enabled()) {
-      Debug.set("maputnik", "revisionStore", this.revisionStore);
-      Debug.set("maputnik", "styleStore", this.styleStore);
-    }
-
-    this.state = {
-      errors: [],
-      infos: [],
-      mapStyle: style.emptyStyle,
-      selectedLayerIndex: 0,
-      currentLevel: 0,
-      sources: {},
-      vectorLayers: {},
-      mapState: "map",
-      spec: latest,
-      mapView: {
-        zoom: 0,
-        center: {
-          lng: 0,
-          lat: 0,
-        },
-      },
-      isOpen: {
-        settings: false,
-        sources: false,
-        open: false,
-        shortcuts: false,
-        export: false,
-        // TODO: Disabled for now, this should be opened on the Nth visit to the editor
-        survey: false,
-        debug: false,
-      },
-      maplibreGlDebugOptions: {
-        showTileBoundaries: false,
-        showCollisionBoxes: false,
-        showOverdrawInspector: false,
-      },
-      openlayersDebugOptions: {
-        debugToolbox: false,
-      },
-    }
-
-    this.layerWatcher = new LayerWatcher({
-      onVectorLayersChange: v => this.setState({ vectorLayers: v })
-    })
-  }
+    });
+  };
 
   handleKeyPress = (e: KeyboardEvent) => {
-    if(navigator.platform.toUpperCase().indexOf('MAC') >= 0) {
+    if(navigator.platform.toUpperCase().indexOf("MAC") >= 0) {
       if(e.metaKey && e.shiftKey && e.keyCode === 90) {
         e.preventDefault();
         this.onRedo();
@@ -388,72 +287,45 @@ export default class App extends React.Component<any, AppState> {
         this.onRedo();
       }
     }
-  }
+  };
 
-  componentDidMount() {
+  async componentDidMount() {
+    this.styleStore = await createStyleStore((mapStyle, opts) => this.onStyleChanged(mapStyle, opts));
     window.addEventListener("keydown", this.handleKeyPress);
-
-    useDrawStore.subscribe((state) => state.isDrawing, (isDrawing) => {
-      if (isDrawing) {
-        this.setModal("sources", false);
-      }
-    });
-
-    useDrawStore.subscribe((state) => state.source, (source) => {
-      if (source && source.id && source.url && source.corners) {
-        const newStyleChanged = addSource(this.state.mapStyle, source.id, {
-          type: 'image',
-          url: source.url,
-          coordinates: [
-            source.corners.topLeft,
-            source.corners.topRight,
-            source.corners.bottomRight,
-            source.corners.bottomLeft
-          ]
-        }) as any;
-        newStyleChanged.layers.push({
-          id: source.id + '-image-layer',
-          type: 'raster',
-          source: source.id
-        })
-
-        this.onStyleChanged(newStyleChanged);
-      }
-    });
   }
 
   componentWillUnmount() {
     window.removeEventListener("keydown", this.handleKeyPress);
   }
 
-  saveStyle(snapshotStyle: StyleSpecification & {id: string}) {
-    this.styleStore.save(snapshotStyle)
+  saveStyle(snapshotStyle: StyleSpecificationWithId) {
+    this.styleStore?.save(snapshotStyle);
   }
 
   updateFonts(urlTemplate: string) {
-    const metadata: {[key: string]: string} = this.state.mapStyle.metadata || {} as any
-    const accessToken = metadata['maputnik:openmaptiles_access_token'] || tokens.openmaptiles
+    const metadata: {[key: string]: string} = this.state.mapStyle.metadata || {} as any;
+    const accessToken = metadata["maputnik:openmaptiles_access_token"] || tokens.openmaptiles;
 
-    const glyphUrl = (typeof urlTemplate === 'string')? urlTemplate.replace('{key}', accessToken): urlTemplate;
-    downloadGlyphsMetadata(glyphUrl, fonts => {
-      this.setState({ spec: updateRootSpec(this.state.spec, 'glyphs', fonts)})
-    })
+    const glyphUrl = (typeof urlTemplate === "string")? urlTemplate.replace("{key}", accessToken): urlTemplate;
+    downloadGlyphsMetadata(glyphUrl).then(fonts => {
+      this.setState({ spec: updateRootSpec(this.state.spec, "glyphs", fonts)});
+    });
   }
 
   updateIcons(baseUrl: string) {
-    downloadSpriteMetadata(baseUrl, icons => {
-      this.setState({ spec: updateRootSpec(this.state.spec, 'sprite', icons)})
-    })
+    downloadSpriteMetadata(baseUrl).then(icons => {
+      this.setState({ spec: updateRootSpec(this.state.spec, "sprite", icons)});
+    });
   }
 
   onChangeMetadataProperty = (property: string, value: any) => {
     // If we're changing renderer reset the map state.
     if (
-      property === 'maputnik:renderer' &&
-      value !== get(this.state.mapStyle, ['metadata', 'maputnik:renderer'], 'mlgljs')
+      property === "maputnik:renderer" &&
+      value !== get(this.state.mapStyle, ["metadata", "maputnik:renderer"], "mlgljs")
     ) {
       this.setState({
-        mapState: 'map'
+        mapState: "map"
       });
     }
 
@@ -463,11 +335,12 @@ export default class App extends React.Component<any, AppState> {
         ...(this.state.mapStyle as any).metadata,
         [property]: value
       }
-    }
-    this.onStyleChanged(changedStyle)
-  }
+    };
 
-  onStyleChanged = (newStyle: StyleSpecification & {id: string}, opts: OnStyleChangedOpts={}) => {
+    this.onStyleChanged(changedStyle);
+  };
+
+  onStyleChanged = (newStyle: StyleSpecificationWithId, opts: OnStyleChangedOpts={}): void => {
     opts = {
       save: true,
       addRevision: true,
@@ -475,12 +348,36 @@ export default class App extends React.Component<any, AppState> {
       ...opts,
     };
 
+
+    // Detect empty style
+    const oldStyle = this.state.mapStyle;
+    const isEmptySources = !oldStyle.sources || Object.keys(oldStyle.sources).length === 0;
+    const isEmptyLayers = !oldStyle.layers || oldStyle.layers.length === 0;
+    const isEmptyStyle = isEmptySources && isEmptyLayers;
+
+    // For the style object, find the urls that has "{key}" and insert the correct API keys
+    // Without this, going from e.g. MapTiler to OpenLayers and back will lose the maptlier key.
+
+    if (newStyle.glyphs && typeof newStyle.glyphs === "string") {
+      newStyle.glyphs = setFetchAccessToken(newStyle.glyphs, newStyle);
+    }
+
+    if (newStyle.sprite && typeof newStyle.sprite === "string") {
+      newStyle.sprite = setFetchAccessToken(newStyle.sprite, newStyle);
+    }
+
+    for (const [_sourceId, source] of Object.entries(newStyle.sources)) {
+      if (source && "url" in source && typeof source.url === "string") {
+        source.url = setFetchAccessToken(source.url, newStyle);
+      }
+    }
+
+
     if (opts.initialLoad) {
       this.getInitialStateFromUrl(newStyle);
     }
 
     const errors: ValidationError[] = validateStyleMin(newStyle) || [];
-
     // The validate function doesn't give us errors for duplicate error with
     // empty string for layer.id, manually deal with that here.
     const layerErrors: (Error | ValidationError)[] = [];
@@ -497,7 +394,7 @@ export default class App extends React.Component<any, AppState> {
       });
     }
 
-    const mappedErrors = layerErrors.concat(errors).map(error => {
+    const mappedErrors: MappedError[] = layerErrors.concat(errors).map(error => {
       // Special case: Duplicate layer id
       const dupMatch = error.message.match(/layers\[(\d+)\]: (duplicate layer id "?(.*)"?, previously used)/);
       if (dupMatch) {
@@ -512,7 +409,7 @@ export default class App extends React.Component<any, AppState> {
               message,
             }
           }
-        }
+        };
       }
 
       // Special case: Invalid source
@@ -529,7 +426,7 @@ export default class App extends React.Component<any, AppState> {
               message,
             }
           }
-        }
+        };
       }
 
       const layerMatch = error.message.match(/layers\[(\d+)\]\.(?:(\S+)\.)?(\S+): (.*)/);
@@ -546,7 +443,7 @@ export default class App extends React.Component<any, AppState> {
               message
             }
           }
-        }
+        };
       }
       else {
         return {
@@ -559,67 +456,77 @@ export default class App extends React.Component<any, AppState> {
     if (errors.length > 0) {
       dirtyMapStyle = cloneDeep(newStyle);
 
-      errors.forEach(error => {
+      for (const error of errors) {
         const {message} = error;
         if (message) {
           try {
             const objPath = message.split(":")[0];
-            // Errors can be deply nested for example 'layers[0].filter[1][1][0]' we only care upto the property 'layers[0].filter'
+            // Errors can be deeply nested for example 'layers[0].filter[1][1][0]' we only care upto the property 'layers[0].filter'
             const unsetPath = objPath.match(/^\S+?\[\d+\]\.[^[]+/)![0];
             unset(dirtyMapStyle, unsetPath);
           }
           catch (err) {
-            console.warn(err);
+            console.warn(message + " " + err);
           }
         }
-      });
+      }
     }
 
     if(newStyle.glyphs !== this.state.mapStyle.glyphs) {
-      this.updateFonts(newStyle.glyphs as string)
+      this.updateFonts(newStyle.glyphs as string);
     }
     if(newStyle.sprite !== this.state.mapStyle.sprite) {
-      this.updateIcons(newStyle.sprite as string)
+      this.updateIcons(newStyle.sprite as string);
     }
 
     if (opts.addRevision) {
       this.revisionStore.addRevision(newStyle);
     }
     if (opts.save) {
-      this.saveStyle(newStyle as StyleSpecification & {id: string});
+      this.saveStyle(newStyle);
     }
+
+    const zoom = newStyle?.zoom;
+    const center = newStyle?.center;
 
     this.setState({
       mapStyle: newStyle,
       dirtyMapStyle: dirtyMapStyle,
+      mapView: isEmptyStyle && zoom && center ? {
+        zoom: zoom,
+        center: {
+          lng: center[0],
+          lat: center[1],
+        },
+        _from: "app"
+      } : this.state.mapView,
       errors: mappedErrors,
     }, () => {
       this.fetchSources();
       this.setStateInUrl();
-    })
-
-  }
+    });
+  };
 
   onUndo = () => {
-    const activeStyle = this.revisionStore.undo()
+    const activeStyle = this.revisionStore.undo();
 
-    const messages = undoMessages(this.state.mapStyle, activeStyle)
+    const messages = undoMessages(this.state.mapStyle, activeStyle);
     this.onStyleChanged(activeStyle, {addRevision: false});
     this.setState({
       infos: messages,
-    })
-  }
+    });
+  };
 
   onRedo = () => {
-    const activeStyle = this.revisionStore.redo()
-    const messages = redoMessages(this.state.mapStyle, activeStyle)
+    const activeStyle = this.revisionStore.redo();
+    const messages = redoMessages(this.state.mapStyle, activeStyle);
     this.onStyleChanged(activeStyle, {addRevision: false});
     this.setState({
       infos: messages,
-    })
-  }
+    });
+  };
 
-  onMoveLayer = (move: SortEnd) => {
+  onMoveLayer = (move: {oldIndex: number; newIndex: number}) => {
     let { oldIndex, newIndex } = move;
     let layers = this.state.mapStyle.layers;
     oldIndex = clamp(oldIndex, 0, layers.length-1);
@@ -635,157 +542,206 @@ export default class App extends React.Component<any, AppState> {
     layers = layers.slice(0);
     arrayMoveMutable(layers, oldIndex, newIndex);
     this.onLayersChange(layers);
-  }
+  };
 
   onLayersChange = (changedLayers: LayerSpecification[]) => {
     const changedStyle = {
       ...this.state.mapStyle,
       layers: changedLayers
-    }
-    this.onStyleChanged(changedStyle)
-  }
+    };
+    this.onStyleChanged(changedStyle);
+  };
 
   onLayerDestroy = (index: number) => {
     const layers = this.state.mapStyle.layers;
     const remainingLayers = layers.slice(0);
     remainingLayers.splice(index, 1);
     this.onLayersChange(remainingLayers);
-  }
+  };
 
   onLayerCopy = (index: number) => {
     const layers = this.state.mapStyle.layers;
-    const changedLayers = layers.slice(0)
+    const changedLayers = layers.slice(0);
 
-    const clonedLayer = cloneDeep(changedLayers[index])
-    clonedLayer.id = clonedLayer.id + "-copy"
-    changedLayers.splice(index, 0, clonedLayer)
-    this.onLayersChange(changedLayers)
-  }
+    const clonedLayer = cloneDeep(changedLayers[index]);
+    clonedLayer.id = clonedLayer.id + "-copy";
+    changedLayers.splice(index + 1, 0, clonedLayer);
+    this.onLayersChange(changedLayers);
+  };
+
+  // Duplicates a layer as a different type: filter/source/source-layer/zoom
+  // range are kept as-is (so it keeps targeting the same features), while
+  // paint/layout properties invalid for the new type are dropped.
+  onLayerDuplicateAsType = (index: number, newType: string) => {
+    const layers = this.state.mapStyle.layers;
+    const changedLayers = layers.slice(0);
+
+    const clonedLayer = cloneDeep(changedLayers[index]);
+    const duplicated = duplicateLayerAsType(clonedLayer, newType);
+    changedLayers.splice(index + 1, 0, duplicated);
+    this.onLayersChange(changedLayers);
+  };
+
+  // Duplicates an `image`-backed raster layer together with its source, as
+  // two brand new, fully independent entries: its own source id (a copy of
+  // the original's coordinates/url, so it starts stacked exactly on top of
+  // the original) and its own companion raster layer - so moving/resizing
+  // the duplicate via the gizmo later never touches the original's source.
+  onLayerDuplicateImage = (index: number) => {
+    const layer = this.state.mapStyle.layers[index] as LayerSpecification & {source?: string};
+    const sourceId = layer.source;
+    if (!sourceId) return;
+    const source = this.state.mapStyle.sources[sourceId];
+    if (!source) return;
+
+    const existingSourceIds = new Set(Object.keys(this.state.mapStyle.sources));
+    const newSourceId = buildDuplicateId(sourceId, existingSourceIds);
+    const styleWithSource = addSource(this.state.mapStyle, newSourceId, cloneDeep(source));
+
+    // Built from the original LAYER's id (not the new source id) so an id
+    // already ending in "-image" gets "-copy" appended after it, not before.
+    const existingLayerIds = new Set(styleWithSource.layers.map(l => l.id));
+    const newLayerId = buildDuplicateId(layer.id, existingLayerIds);
+    const newLayer = {...cloneDeep(layer), id: newLayerId, source: newSourceId} as LayerSpecification;
+
+    const changedLayers = styleWithSource.layers.slice(0);
+    changedLayers.splice(index + 1, 0, newLayer);
+    this.onStyleChanged({...styleWithSource, layers: changedLayers});
+  };
 
   onLayerVisibilityToggle = (index: number) => {
     const layers = this.state.mapStyle.layers;
-    const changedLayers = layers.slice(0)
+    const changedLayers = layers.slice(0);
 
-    const layer = { ...changedLayers[index] }
-    const changedLayout = 'layout' in layer ? {...layer.layout} : {}
-    changedLayout.visibility = changedLayout.visibility === 'none' ? 'visible' : 'none'
+    const layer = { ...changedLayers[index] };
+    const changedLayout = "layout" in layer ? {...layer.layout} : {};
+    changedLayout.visibility = changedLayout.visibility === "none" ? "visible" : "none";
 
-    layer.layout = changedLayout
-    changedLayers[index] = layer
-    this.onLayersChange(changedLayers)
-  }
+    layer.layout = changedLayout;
+    changedLayers[index] = layer;
+    this.onLayersChange(changedLayers);
+  };
 
+
+  onLayerTagColor = (index: number, color: string | null) => {
+    const layers = this.state.mapStyle.layers.slice(0);
+    const layer = { ...layers[index] } as any;
+    const metadata = { ...(layer.metadata || {}) };
+    if (color) {
+      metadata["maputnik:tag-color"] = color;
+    } else {
+      delete metadata["maputnik:tag-color"];
+    }
+    layer.metadata = Object.keys(metadata).length > 0 ? metadata : undefined;
+    layers[index] = layer;
+    this.onLayersChange(layers);
+  };
 
   onLayerIdChange = (index: number, _oldId: string, newId: string) => {
-    const changedLayers = this.state.mapStyle.layers.slice(0)
+    const changedLayers = this.state.mapStyle.layers.slice(0);
     changedLayers[index] = {
       ...changedLayers[index],
       id: newId
-    }
+    };
 
-    this.onLayersChange(changedLayers)
-  }
+    this.onLayersChange(changedLayers);
+  };
 
   onLayerChanged = (index: number, layer: LayerSpecification) => {
-    const changedLayers = this.state.mapStyle.layers.slice(0)
-    changedLayers[index] = layer
+    const changedLayers = this.state.mapStyle.layers.slice(0);
+    changedLayers[index] = layer;
 
-    this.onLayersChange(changedLayers)
-  }
+    this.onLayersChange(changedLayers);
+  };
 
   setMapState = (newState: MapState) => {
     this.setState({
       mapState: newState
     }, this.setStateInUrl);
-  }
+  };
 
-  setDefaultValues = (styleObj: StyleSpecification & {id: string}) => {
-    const metadata: {[key: string]: string} = styleObj.metadata || {} as any
-    if(metadata['maputnik:renderer'] === undefined) {
+  setDefaultValues = (styleObj: StyleSpecificationWithId) => {
+    const metadata: {[key: string]: string} = styleObj.metadata || {} as any;
+    if(metadata["maputnik:renderer"] === undefined) {
       const changedStyle = {
         ...styleObj,
         metadata: {
           ...styleObj.metadata as any,
-          'maputnik:renderer': 'mlgljs'
+          "maputnik:renderer": "mlgljs"
         }
-      }
-      return changedStyle
+      };
+      return changedStyle;
     } else {
-      return styleObj
+      return styleObj;
     }
-  }
+  };
 
-  openStyle = (styleObj: StyleSpecification & {id: string}) => {
-    styleObj = this.setDefaultValues(styleObj)
-    this.onStyleChanged(styleObj)
-  }
+  openStyle = (styleObj: StyleSpecificationWithId, fileHandle: FileSystemFileHandle | null) => {
+    this.setState({fileHandle: fileHandle});
+    styleObj = this.setDefaultValues(styleObj);
+    styleObj = cleanIndoorLevelBlocks(styleObj);
+    this.onStyleChanged(styleObj);
+  };
 
-  fetchSources() {
-    const sourceList: {[key: string]: any} = {};
-
-    for(const [key, val] of Object.entries(this.state.mapStyle.sources)) {
-      if(
-        !Object.prototype.hasOwnProperty.call(this.state.sources, key) &&
-        val.type === "vector" &&
-        Object.prototype.hasOwnProperty.call(val, "url")
-      ) {
+  async fetchSources() {
+    const sourceList: {[key: string]: SourceSpecification & {layers: string[]}} = {};
+    for(const key of Object.keys(this.state.mapStyle.sources)) {
+      const source = this.state.mapStyle.sources[key];
+      if(source.type !== "vector" || !("url" in source)) {
+        sourceList[key] = this.state.sources[key] || {...this.state.mapStyle.sources[key]};
+        if (sourceList[key].layers === undefined) {
+          sourceList[key].layers = [];
+        }
+      } else {
         sourceList[key] = {
-          type: val.type,
+          type: source.type,
           layers: []
         };
 
-        let url = val.url;
+        let url = source.url;
 
         try {
-          url = setFetchAccessToken(url!, this.state.mapStyle)
+          url = setFetchAccessToken(url!, this.state.mapStyle);
         } catch(err) {
           console.warn("Failed to setFetchAccessToken: ", err);
         }
 
-        fetch(url!, {
-          mode: 'cors',
-        })
-          .then(response => response.json())
-          .then(json => {
+        const setVectorLayers = (json:any) => {
+          if(!Object.prototype.hasOwnProperty.call(json, "vector_layers")) {
+            return;
+          }
 
-            if(!Object.prototype.hasOwnProperty.call(json, "vector_layers")) {
-              return;
-            }
+          for(const layer of json.vector_layers) {
+            sourceList[key].layers.push(layer.id);
+          }
+        };
 
-            // Create new objects before setState
-            const sources = Object.assign({}, {
-              [key]: this.state.sources[key],
-            });
-
-            for(const layer of json.vector_layers) {
-              (sources[key] as any).layers.push(layer.id)
-            }
-
-            console.debug("Updating source: "+key);
-            this.setState({
-              sources: sources
-            });
-          })
-          .catch(err => {
-            console.error("Failed to process sources for '%s'", url, err);
-          });
-      }
-      else {
-        sourceList[key] = this.state.sources[key] || this.state.mapStyle.sources[key];
+        try {
+          if (url!.startsWith("pmtiles://")) {
+            const json = await (new PMTiles(url!.substring(10))).getTileJson("");
+            setVectorLayers(json);
+          } else {
+            const response = await fetch(url!, { mode: "cors" });
+            const json = await response.json();
+            setVectorLayers(json);
+          }
+        } catch(err) {
+          console.error(`Failed to process source for url: '${url}', ${err}`);
+        }
       }
     }
 
     if(!isEqual(this.state.sources, sourceList)) {
-      console.debug("Setting sources");
+      console.debug("Setting sources", sourceList);
       this.setState({
         sources: sourceList
-      })
+      });
     }
   }
 
   _getRenderer () {
     const metadata: {[key:string]: string} = this.state.mapStyle.metadata || {} as any;
-    return metadata['maputnik:renderer'] || 'mlgljs';
+    return metadata["maputnik:renderer"] || "mlgljs";
   }
 
   onMapChange = (mapView: {
@@ -794,47 +750,11 @@ export default class App extends React.Component<any, AppState> {
       lng: number,
       lat: number,
     },
+    _from: "map" | "app"
   }) => {
     this.setState({
       mapView,
     });
-  }
-
-  applyIndoorLevelFilter = (layer: LayerSpecification, level: number) => {
-    if ('filter' in layer && layer.id.startsWith('indoor') && layer.filter && Array.isArray(layer.filter) && layer.filter.length > 1) {
-      layer.filter = [
-        'all',
-        hasFilterWithLevel(layer.filter) ? (layer.filter as any)[1] : layer.filter,
-        [
-          'any',
-          ['==', ['get', 'level'], level.toString()],
-          [
-            'all',
-            ['has', 'min_level'],
-            ['has', 'max_level'],
-            ['>=', level, ['get', 'min_level']],
-            ['<=', level, ['get', 'max_level']]
-          ],
-          ['!', ['has', 'level']]
-        ]
-      ];
-    }
-
-    return layer;
-  }
-
-  onLevelChange = (level: number) => {
-    const { mapStyle } = this.state;
-
-    const clonedStyle = cloneDeep(mapStyle);
-
-    for (const layer of clonedStyle.layers) {
-      this.applyIndoorLevelFilter(layer, level);
-    }
-
-    this.onStyleChanged(clonedStyle);
-
-    this.setState({ currentLevel: level });
   };
 
   mapRenderer() {
@@ -842,37 +762,44 @@ export default class App extends React.Component<any, AppState> {
 
     const mapProps = {
       mapStyle: (dirtyMapStyle || mapStyle),
+      mapView: this.state.mapView,
       replaceAccessTokens: (mapStyle: StyleSpecification) => {
         return style.replaceAccessTokens(mapStyle, {
           allowFallback: true
         });
       },
       onDataChange: (e: {map: Map}) => {
-        this.layerWatcher.analyzeMap(e.map)
+        this.layerWatcher.analyzeMap(e.map);
         this.fetchSources();
       },
-    }
+    };
 
     const renderer = this._getRenderer();
+    const selectedImageSourceForMap = this.selectedImageSource();
 
     let mapElement;
 
     // Check if OL code has been loaded?
-    if(renderer === 'ol') {
+    if(renderer === "ol") {
       mapElement = <MapOpenLayers
         {...mapProps}
         onChange={this.onMapChange}
         debugToolbox={this.state.openlayersDebugOptions.debugToolbox}
-        onLayerSelect={this.onLayerSelect}
-      />
+        onLayerSelect={(layerId) => this.onLayerSelect(+layerId)}
+      />;
     } else {
+
       mapElement = <MapMaplibreGl {...mapProps}
         onChange={this.onMapChange}
-        onLevelChange={this.onLevelChange}
         options={this.state.maplibreGlDebugOptions}
         inspectModeEnabled={this.state.mapState === "inspect"}
         highlightedLayer={this.state.mapStyle.layers[this.state.selectedLayerIndex]}
-        onLayerSelect={this.onLayerSelect} />
+        onLayerSelect={this.onLayerSelect}
+        pendingImagePlacement={this.state.pendingImagePlacement}
+        onImagePlaced={this.onImagePlaced}
+        selectedImageSource={selectedImageSourceForMap}
+        selectedImageFixedPivot={selectedImageSourceForMap ? this.isImagePivotFixed(selectedImageSourceForMap.sourceId) : false}
+        onImageSourceChanged={this.onImageSourceChanged} />;
     }
 
     let filterName;
@@ -886,7 +813,7 @@ export default class App extends React.Component<any, AppState> {
 
     return <div style={elementStyle} className="maputnik-map__container" data-wd-key="maplibre:container">
       {mapElement}
-    </div>
+    </div>;
   }
 
   setStateInUrl = () => {
@@ -915,11 +842,12 @@ export default class App extends React.Component<any, AppState> {
     }
 
     history.replaceState({selectedLayerIndex}, "Maputnik", url.href);
-  }
+  };
 
   getInitialStateFromUrl = (mapStyle: StyleSpecification) => {
     const url = new URL(location.href);
     const modalParam = url.searchParams.get("modal");
+
     if (modalParam && modalParam !== "") {
       const modals = modalParam.split(",");
       const modalObj: {[key: string]: boolean} = {};
@@ -967,44 +895,112 @@ export default class App extends React.Component<any, AppState> {
         console.warn(err);
       }
     }
-  }
+  };
 
   onLayerSelect = (index: number) => {
     this.setState({
       selectedLayerIndex: index,
       selectedLayerOriginalId: this.state.mapStyle.layers[index].id,
-    }, () => {
-      const { mapStyle, currentLevel } = this.state;
+    }, this.setStateInUrl);
+  };
 
-      const clonedStyle = cloneDeep(mapStyle);
+  // The gizmo (and later the "Image Position" panel section) only show up
+  // when the selected layer's source is an `image` source - and only when
+  // that layer was picked from the Layers list (the only way
+  // selectedLayerIndex changes), deliberately not by clicking the image
+  // itself on the map, to avoid accidental drags.
+  selectedImageSource = (): { sourceId: string; source: SourceSpecification } | null => {
+    const layer = this.state.mapStyle.layers[this.state.selectedLayerIndex] as any;
+    const sourceId = layer?.source;
+    if (!sourceId) return null;
 
+    const source = this.state.mapStyle.sources[sourceId];
+    if (!source || source.type !== "image") return null;
 
-      for (const layer of clonedStyle.layers) {
-        this.applyIndoorLevelFilter(layer, currentLevel);
-      }
+    return { sourceId, source };
+  };
 
-      this.onStyleChanged(clonedStyle);
+  // Whether `sourceId`'s gizmo scales around a fixed "pivot" (its own
+  // center) instead of the default opposite-corner anchor, and can no
+  // longer be translated by dragging its body - see ImagePositionEditor's
+  // Pivot row lock icon. `ImageSourceSpecification` has no `metadata` field
+  // of its own (adding one fails style validation - "unknown property"), so
+  // this is tracked per-source in the *style's*
+  // metadata instead, the same place ModalExport keeps its own
+  // "maputnik:..." settings, keyed by source id since it's a per-image
+  // setting rather than a style-wide one.
+  isImagePivotFixed = (sourceId: string): boolean => {
+    const metadata = this.state.mapStyle.metadata as {["maputnik:image_fixed_pivot"]?: Record<string, boolean>} | undefined;
+    return !!metadata?.["maputnik:image_fixed_pivot"]?.[sourceId];
+  };
 
-      this.setStateInUrl();
-    });
-  }
+  onImagePivotFixedChanged = (sourceId: string, fixed: boolean) => {
+    const metadata = {...(this.state.mapStyle.metadata as Record<string, unknown> | undefined || {})};
+    const flags = {...(metadata["maputnik:image_fixed_pivot"] as Record<string, boolean> | undefined || {})};
+    if (fixed) {
+      flags[sourceId] = true;
+    } else {
+      delete flags[sourceId];
+    }
+    metadata["maputnik:image_fixed_pivot"] = flags;
+    this.onStyleChanged({...this.state.mapStyle, metadata});
+  };
+
+  // "Add Source" (image mode) hands off here instead of writing straight to
+  // the style: nothing is created yet, we just start waiting for the
+  // placement click on the map (see MapMaplibreGl's pendingImagePlacement).
+  onImageSourcePlacementStart = (sourceId: string, source: SourceSpecification) => {
+    this.setState({ pendingImagePlacement: { sourceId, source } });
+  };
+
+  onImagePlacementCancel = () => {
+    this.setState({ pendingImagePlacement: null });
+  };
+
+  // The placement click landed: `source` already carries the coordinates
+  // computed from that click (see MapMaplibreGl). Create the source and its
+  // companion raster layer together, then select the new layer.
+  onImagePlaced = (sourceId: string, source: SourceSpecification) => {
+    const styleWithSource = addSource(this.state.mapStyle, sourceId, source);
+    const layer = createImageRasterLayer(styleWithSource.layers, sourceId);
+    const styleWithLayer = {
+      ...styleWithSource,
+      layers: [...styleWithSource.layers, layer],
+    };
+
+    this.onStyleChanged(styleWithLayer);
+    this.setState({
+      pendingImagePlacement: null,
+      selectedLayerIndex: styleWithLayer.layers.length - 1,
+      selectedLayerOriginalId: layer.id,
+    }, this.setStateInUrl);
+  };
+
+  // Dragging the gizmo (translate/scale/rotate) calls this on every tick,
+  // with opts: {addRevision: false, save: false} so a drag in progress
+  // doesn't flood the undo history or the persisted style - only the final
+  // call on mouseup (opts omitted, so onStyleChanged's real defaults apply)
+  // commits the gesture as one undoable step.
+  onImageSourceChanged = (sourceId: string, source: SourceSpecification, opts: OnStyleChangedOpts = {}) => {
+    this.onStyleChanged(changeSource(this.state.mapStyle, sourceId, source), opts);
+  };
 
   setModal(modalName: keyof AppState["isOpen"], value: boolean) {
-    if(modalName === 'survey' && value === false) {
-      localStorage.setItem('survey', '');
-    }
-
     this.setState({
       isOpen: {
         ...this.state.isOpen,
         [modalName]: value
       }
-    }, this.setStateInUrl)
+    }, this.setStateInUrl);
   }
 
   toggleModal(modalName: keyof AppState["isOpen"]) {
     this.setModal(modalName, !this.state.isOpen[modalName]);
   }
+
+  onSetFileHandle = (fileHandle: FileSystemFileHandle | null) => {
+    this.setState({ fileHandle });
+  };
 
   onChangeOpenlayersDebug = (key: keyof AppState["openlayersDebugOptions"], value: boolean) => {
     this.setState({
@@ -1013,7 +1009,7 @@ export default class App extends React.Component<any, AppState> {
         [key]: value,
       }
     });
-  }
+  };
 
   onChangeMaplibreGlDebug = (key: keyof AppState["maplibreGlDebugOptions"], value: any) => {
     this.setState({
@@ -1022,11 +1018,11 @@ export default class App extends React.Component<any, AppState> {
         [key]: value,
       }
     });
-  }
+  };
 
   render() {
-    const layers = this.state.mapStyle.layers || []
-    const selectedLayer = layers.length > 0 ? layers[this.state.selectedLayerIndex] : undefined
+    const layers = this.state.mapStyle.layers || [];
+    const selectedLayer = layers.length > 0 ? layers[this.state.selectedLayerIndex] : undefined;
 
     const toolbar = <AppToolbar
       renderer={this._getRenderer()}
@@ -1037,21 +1033,30 @@ export default class App extends React.Component<any, AppState> {
       onStyleChanged={this.onStyleChanged}
       onStyleOpen={this.onStyleChanged}
       onSetMapState={this.setMapState}
-      onToggleModal={this.toggleModal.bind(this)}
-    />
+      onToggleModal={(modal: keyof AppState["isOpen"]) => this.toggleModal(modal)}
+    />;
+
+    const codeEditor = this.state.isOpen.codeEditor ? <CodeEditor
+      value={this.state.mapStyle}
+      onChange={(style) => this.onStyleChanged(style)}
+      onClose={() => this.setModal("codeEditor", false)}
+    /> : undefined;
 
     const layerList = <LayerList
       onMoveLayer={this.onMoveLayer}
       onLayerDestroy={this.onLayerDestroy}
       onLayerCopy={this.onLayerCopy}
+      onLayerDuplicateAsType={this.onLayerDuplicateAsType}
+      onLayerDuplicateImage={this.onLayerDuplicateImage}
       onLayerVisibilityToggle={this.onLayerVisibilityToggle}
+      onLayerTagColor={this.onLayerTagColor}
       onLayersChange={this.onLayersChange}
       onLayerSelect={this.onLayerSelect}
       selectedLayerIndex={this.state.selectedLayerIndex}
       layers={layers}
       sources={this.state.sources}
       errors={this.state.errors}
-    />
+    />;
 
     const layerEditor = selectedLayer ? <LayerEditor
       key={this.state.selectedLayerOriginalId}
@@ -1060,6 +1065,7 @@ export default class App extends React.Component<any, AppState> {
       isFirstLayer={this.state.selectedLayerIndex < 1}
       isLastLayer={this.state.selectedLayerIndex === this.state.mapStyle.layers.length-1}
       sources={this.state.sources}
+      mapStyleSources={this.state.mapStyle.sources}
       vectorLayers={this.state.vectorLayers}
       spec={this.state.spec}
       onMoveLayer={this.onMoveLayer}
@@ -1068,8 +1074,11 @@ export default class App extends React.Component<any, AppState> {
       onLayerCopy={this.onLayerCopy}
       onLayerVisibilityToggle={this.onLayerVisibilityToggle}
       onLayerIdChange={this.onLayerIdChange}
+      onImageSourceChanged={this.onImageSourceChanged}
+      isImagePivotFixed={this.isImagePivotFixed}
+      onImagePivotFixedChanged={this.onImagePivotFixedChanged}
       errors={this.state.errors}
-    /> : undefined
+    /> : undefined;
 
     const bottomPanel = (this.state.errors.length + this.state.infos.length) > 0 ? <MessagePanel
       currentLayer={selectedLayer}
@@ -1078,7 +1087,7 @@ export default class App extends React.Component<any, AppState> {
       mapStyle={this.state.mapStyle}
       errors={this.state.errors}
       infos={this.state.infos}
-    /> : undefined
+    /> : undefined;
 
 
     const modals = <div>
@@ -1089,53 +1098,57 @@ export default class App extends React.Component<any, AppState> {
         onChangeMaplibreGlDebug={this.onChangeMaplibreGlDebug}
         onChangeOpenlayersDebug={this.onChangeOpenlayersDebug}
         isOpen={this.state.isOpen.debug}
-        onOpenToggle={this.toggleModal.bind(this, 'debug')}
+        onOpenToggle={() => this.toggleModal("debug")}
         mapView={this.state.mapView}
       />
       <ModalShortcuts
-        ref={(el) => this.shortcutEl = el}
         isOpen={this.state.isOpen.shortcuts}
-        onOpenToggle={this.toggleModal.bind(this, 'shortcuts')}
+        onOpenToggle={() => this.toggleModal("shortcuts")}
       />
       <ModalSettings
         mapStyle={this.state.mapStyle}
         onStyleChanged={this.onStyleChanged}
         onChangeMetadataProperty={this.onChangeMetadataProperty}
         isOpen={this.state.isOpen.settings}
-        onOpenToggle={this.toggleModal.bind(this, 'settings')}
+        onOpenToggle={() => this.toggleModal("settings")}
       />
       <ModalExport
         mapStyle={this.state.mapStyle}
         onStyleChanged={this.onStyleChanged}
         isOpen={this.state.isOpen.export}
-        onOpenToggle={this.toggleModal.bind(this, 'export')}
+        onOpenToggle={() => this.toggleModal("export")}
+        fileHandle={this.state.fileHandle}
+        onSetFileHandle={this.onSetFileHandle}
       />
       <ModalOpen
         isOpen={this.state.isOpen.open}
         onStyleOpen={this.openStyle}
-        onOpenToggle={this.toggleModal.bind(this, 'open')}
+        onOpenToggle={() => this.toggleModal("open")}
+        fileHandle={this.state.fileHandle}
       />
       <ModalSources
         mapStyle={this.state.mapStyle}
         onStyleChanged={this.onStyleChanged}
         isOpen={this.state.isOpen.sources}
-        onOpenToggle={this.toggleModal.bind(this, 'sources')}
+        onOpenToggle={() => this.toggleModal("sources")}
+        onImageSourcePlacementStart={this.onImageSourcePlacementStart}
       />
-      <ModalSurvey
-        isOpen={this.state.isOpen.survey}
-        onOpenToggle={this.toggleModal.bind(this, 'survey')}
+      <ModalGlobalState
+        mapStyle={this.state.mapStyle}
+        onStyleChanged={this.onStyleChanged}
+        isOpen={this.state.isOpen.globalState}
+        onOpenToggle={() => this.toggleModal("globalState")}
       />
-    </div>
+    </div>;
 
-    return <>
-      <AppLayout
-        toolbar={toolbar}
-        layerList={layerList}
-        layerEditor={layerEditor}
-        map={this.mapRenderer()}
-        bottom={bottomPanel}
-        modals={modals}
-      />
-    </>
+    return <AppLayout
+      toolbar={toolbar}
+      layerList={layerList}
+      layerEditor={layerEditor}
+      codeEditor={codeEditor}
+      map={this.mapRenderer()}
+      bottom={bottomPanel}
+      modals={modals}
+    />;
   }
 }

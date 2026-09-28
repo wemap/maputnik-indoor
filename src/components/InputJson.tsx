@@ -1,124 +1,98 @@
-import React from 'react'
-import classnames from 'classnames';
-import CodeMirror, { ModeSpec } from 'codemirror';
+import React from "react";
+import classnames from "classnames";
+import { type WithTranslation, withTranslation } from "react-i18next";
 
-import 'codemirror/mode/javascript/javascript'
-import 'codemirror/addon/lint/lint'
-import 'codemirror/addon/edit/matchbrackets'
-import 'codemirror/lib/codemirror.css'
-import 'codemirror/addon/lint/lint.css'
-import stringifyPretty from 'json-stringify-pretty-compact'
-import '../libs/codemirror-mgl';
+import { type EditorView } from "@codemirror/view";
+import stringifyPretty from "json-stringify-pretty-compact";
 
+import {createEditor} from "../libs/codemirror-editor-factory";
+import type { StylePropertySpecification } from "maplibre-gl";
+import type { TransactionSpec } from "@codemirror/state";
 
 export type InputJsonProps = {
-  layer: any
-  maxHeight?: number
-  onChange?(...args: unknown[]): unknown
-  lineNumbers?: boolean
-  lineWrapping?: boolean
-  getValue?(data: any): string
-  gutters?: string[]
+  value: object
   className?: string
+  onChange(object: object): void
   onFocus?(...args: unknown[]): unknown
   onBlur?(...args: unknown[]): unknown
-  onJSONValid?(...args: unknown[]): unknown
-  onJSONInvalid?(...args: unknown[]): unknown
-  mode?: ModeSpec<any>
-  lint?: boolean | object
+  lintType: "layer" | "style" | "expression" | "json"
+  spec?: StylePropertySpecification | undefined
+  /**
+   * When setting this and using search and replace, the editor will scroll to the selected text
+   * Use this only when the editor is the only element in the page.
+   */
+  withScroll?: boolean
 };
+type InputJsonInternalProps = InputJsonProps & WithTranslation;
 
 type InputJsonState = {
   isEditing: boolean
-  showMessage: boolean
   prevValue: string
 };
 
-export default class InputJson extends React.Component<InputJsonProps, InputJsonState> {
+class InputJsonInternal extends React.Component<InputJsonInternalProps, InputJsonState> {
   static defaultProps = {
-    lineNumbers: true,
-    lineWrapping: false,
-    gutters: ["CodeMirror-lint-markers"],
-    getValue: (data: any) => {
-      return stringifyPretty(data, {indent: 2, maxLength: 40});
-    },
     onFocus: () => {},
     onBlur: () => {},
-    onJSONInvalid: () => {},
-    onJSONValid: () => {},
-  }
-  _keyEvent: string;
-  _doc: CodeMirror.Editor | undefined;
+    withScroll: false
+  };
+  _view: EditorView | undefined;
   _el: HTMLDivElement | null = null;
   _cancelNextChange: boolean = false;
 
-  constructor(props: InputJsonProps) {
+  constructor(props: InputJsonInternalProps) {
     super(props);
-    this._keyEvent = "keyboard";
     this.state = {
       isEditing: false,
-      showMessage: false,
-      prevValue: this.props.getValue!(this.props.layer),
+      prevValue: this.getPrettyJson(this.props.value),
     };
   }
 
-  componentDidMount () {
-    this._doc = CodeMirror(this._el!, {
-      value: this.props.getValue!(this.props.layer),
-      mode: this.props.mode || {
-        name: "mgl",
-      },
-      lineWrapping: this.props.lineWrapping,
-      tabSize: 2,
-      theme: 'maputnik',
-      viewportMargin: Infinity,
-      lineNumbers: this.props.lineNumbers,
-      lint: this.props.lint || {
-        context: "layer"
-      },
-      matchBrackets: true,
-      gutters: this.props.gutters,
-      scrollbarStyle: "null",
-    });
-
-    this._doc.on('change', this.onChange);
-    this._doc.on('focus', this.onFocus);
-    this._doc.on('blur', this.onBlur);
+  getPrettyJson(data: any) {
+    return stringifyPretty(data, {indent: 2, maxLength: 40});
   }
 
-  onPointerDown = () => {
-    this._keyEvent = "pointer";
+  componentDidMount () {
+    this._view = createEditor({
+      parent: this._el!,
+      value: this.getPrettyJson(this.props.value),
+      lintType: this.props.lintType || "layer",
+      onChange: (value:string) => this.onChange(value),
+      onFocus: () => this.onFocus(),
+      onBlur: () => this.onBlur(),
+      spec: this.props.spec
+    });
   }
 
   onFocus = () => {
     if (this.props.onFocus) this.props.onFocus();
     this.setState({
       isEditing: true,
-      showMessage: (this._keyEvent === "keyboard"),
     });
-  }
+  };
 
   onBlur = () => {
-    this._keyEvent = "keyboard";
     if (this.props.onBlur) this.props.onBlur();
     this.setState({
       isEditing: false,
-      showMessage: false,
     });
-  }
-
-  componentWillUnMount () {
-    this._doc!.off('change', this.onChange);
-    this._doc!.off('focus', this.onFocus);
-    this._doc!.off('blur', this.onBlur);
-  }
+  };
 
   componentDidUpdate(prevProps: InputJsonProps) {
-    if (!this.state.isEditing && prevProps.layer !== this.props.layer) {
+    if (!this.state.isEditing && prevProps.value !== this.props.value) {
       this._cancelNextChange = true;
-      this._doc!.setValue(
-        this.props.getValue!(this.props.layer),
-      )
+      const transactionSpec: TransactionSpec = {
+        changes: {
+          from: 0,
+          to: this._view!.state.doc.length,
+          insert: this.getPrettyJson(this.props.value)
+        }
+      };
+      if (this.props.withScroll) {
+        transactionSpec.selection = this._view!.state.selection;
+        transactionSpec.scrollIntoView = true;
+      }
+      this._view!.dispatch(transactionSpec);
     }
   }
 
@@ -126,11 +100,11 @@ export default class InputJson extends React.Component<InputJsonProps, InputJson
     if (this._cancelNextChange) {
       this._cancelNextChange = false;
       this.setState({
-        prevValue: this._doc!.getValue(),
-      })
+        prevValue: this._view!.state.doc.toString(),
+      });
       return;
     }
-    const newCode = this._doc!.getValue();
+    const newCode = this._view!.state.doc.toString();
 
     if (this.state.prevValue !== newCode) {
       let parsedLayer, err;
@@ -138,39 +112,28 @@ export default class InputJson extends React.Component<InputJsonProps, InputJson
         parsedLayer = JSON.parse(newCode);
       } catch(_err) {
         err = _err;
-        console.warn(_err)
+        console.warn(_err);
       }
 
-      if (err && this.props.onJSONInvalid) {
-        this.props.onJSONInvalid();
-      }
-      else {
-        if (this.props.onChange) this.props.onChange(parsedLayer)
-        if (this.props.onJSONValid) this.props.onJSONValid();
+      if (!err) {
+        if (this.props.onChange) this.props.onChange(parsedLayer);
       }
     }
 
     this.setState({
       prevValue: newCode,
     });
-  }
+  };
 
   render() {
-    const {showMessage} = this.state;
-    const style = {} as {maxHeight?: number};
-    if (this.props.maxHeight) {
-      style.maxHeight = this.props.maxHeight;
-    }
-
-    return <div className="JSONEditor" onPointerDown={this.onPointerDown} aria-hidden="true">
-      <div className={classnames("JSONEditor__message", {"JSONEditor__message--on": showMessage})}>
-        Press <kbd>ESC</kbd> to lose focus
-      </div>
+    return <div className="json-editor" data-wd-key="json-editor" aria-hidden="true" style={{cursor: "text"}}>
       <div
         className={classnames("codemirror-container", this.props.className)}
-        ref={(el) => this._el = el}
-        style={style}
+        ref={(el) => {this._el = el;}}
       />
-    </div>
+    </div>;
   }
 }
+
+const InputJson = withTranslation()(InputJsonInternal);
+export default InputJson;

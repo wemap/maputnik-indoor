@@ -1,3 +1,5 @@
+@use "vars";
+
 //SCROLLING
 .maputnik-scroll-container {
   overflow-x: hidden;
@@ -11,37 +13,83 @@
 
 //APP LAYOUT
 .maputnik-layout {
-  font-family: $font-family;
-  color: $color-white;
+  font-family: vars.$font-family;
+  color: vars.$color-white;
 
-  &-list {
+  &-main {
     position: fixed;
     bottom: 0;
-    height: calc(100% - #{$toolbar-height + $toolbar-offset});
-    top: $toolbar-height + $toolbar-offset;
+    height: calc(100% - #{vars.$toolbar-height + vars.$toolbar-offset});
+    top: vars.$toolbar-height + vars.$toolbar-offset;
     left: 0;
+    right: 0;
     z-index: 3;
-    width: 200px;
-    background-color: $color-black;
+
+    display: flex;
+  }
+
+  &-list {
+    flex-shrink: 0;
+    background-color: vars.$color-black;
+    min-width: 120px;
+    max-width: 500px;
+  }
+
+  &-resizer {
+    width: 4px;
+    flex-shrink: 0;
+    background-color: vars.$color-midgray;
+    cursor: col-resize;
+    transition: background-color 120ms ease;
+    z-index: 10;
+
+    &:hover {
+      background-color: vars.$color-lowgray;
+    }
+  }
+
+  // Thin line that follows the cursor while dragging the layers panel
+  // resizer. The panel/map themselves don't move until the drag ends, so
+  // this is the only thing that updates on every mousemove.
+  &-resize-guide {
+    position: fixed;
+    top: vars.$toolbar-height + vars.$toolbar-offset;
+    bottom: 0;
+    width: 4px;
+    margin-left: -2px;
+    background-color: vars.$color-lowgray;
+    z-index: 20;
+    pointer-events: none;
   }
 
   &-drawer {
-    position: fixed;
-    bottom: 0;
-    height: calc(100% - #{$toolbar-height + $toolbar-offset});
-    top: $toolbar-height + $toolbar-offset;
-    left: 200px;
-    z-index: 1;
     width: 370px;
-    background-color: $color-black;
+    flex-shrink: 0;
+    background-color: vars.$color-black;
+    // scroll-container is position: absolute
+    position: relative;
+  }
+
+  &-code-editor {
+    width: 570px;
+    background-color: vars.$color-black;
+    // scroll-container is position: absolute
+    position: relative;
+  }
+
+  &-map-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background-color: vars.$color-black;
   }
 
   &-bottom {
-    position: fixed;
+    position: absolute;
     bottom: 0;
+    left: 0;
     right: 0;
-    z-index: 1;
-    width: $layout-map-width;
-    background-color: $color-black;
+    z-index: 10;
+    background-color: vars.$color-black;
   }
 }

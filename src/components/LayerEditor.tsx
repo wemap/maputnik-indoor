@@ -1,141 +1,251 @@
-import React, {type JSX} from 'react'
-import PropTypes from 'prop-types'
-import { Wrapper, Button, Menu, MenuItem } from 'react-aria-menubutton'
-import {Accordion} from 'react-accessible-accordion';
-import {MdMoreVert} from 'react-icons/md'
-import {BackgroundLayerSpecification, LayerSpecification, SourceSpecification} from 'maplibre-gl';
+import React, { type JSX } from "react";
+import { Wrapper, Button, Menu, MenuItem } from "react-aria-menubutton";
+import { Accordion } from "react-accessible-accordion";
+import { MdMoreVert } from "react-icons/md";
+import { IconContext } from "react-icons";
+import { type BackgroundLayerSpecification, type ImageSourceSpecification, type LayerSpecification, type SourceSpecification } from "maplibre-gl";
+import { v8 } from "@maplibre/maplibre-gl-style-spec";
 
-import FieldJson from './FieldJson'
-import FilterEditor from './FilterEditor'
-import PropertyGroup from './PropertyGroup'
-import LayerEditorGroup from './LayerEditorGroup'
-import FieldType from './FieldType'
-import FieldId from './FieldId'
-import FieldMinZoom from './FieldMinZoom'
-import FieldMaxZoom from './FieldMaxZoom'
-import FieldComment from './FieldComment'
-import FieldSource from './FieldSource'
-import FieldSourceLayer from './FieldSourceLayer'
-import { changeType, changeProperty } from '../libs/layer'
-import layout from '../config/layout.json'
-import {formatLayerId} from '../libs/format';
+import FieldJson from "./FieldJson";
+import ImagePositionEditor from "./ImagePositionEditor";
+import FilterEditor from "./FilterEditor";
+import PropertyGroup from "./PropertyGroup";
+import LayerEditorGroup from "./LayerEditorGroup";
+import FieldType from "./FieldType";
+import FieldId from "./FieldId";
+import FieldMinZoom from "./FieldMinZoom";
+import FieldMaxZoom from "./FieldMaxZoom";
+import FieldComment from "./FieldComment";
+import FieldSource from "./FieldSource";
+import FieldSourceLayer from "./FieldSourceLayer";
+import { changeType, changeProperty } from "../libs/layer";
+import { formatLayerId } from "../libs/format";
+import { type WithTranslation, withTranslation } from "react-i18next";
+import { type TFunction } from "i18next";
+import { NON_SOURCE_LAYERS } from "../libs/non-source-layers";
+import { type MappedError, type MappedLayerErrors, type OnMoveLayerCallback } from "../libs/definitions";
 
+type MaputnikLayoutGroup = {
+  id: string;
+  title: string;
+  type: string;
+  fields: string[];
+};
 
-function getLayoutForType(type: LayerSpecification["type"]) {
-  return layout[type] ? layout[type] : layout.invalid;
+function getLayoutForSymbolType(t: TFunction): MaputnikLayoutGroup[] {
+  const groups: MaputnikLayoutGroup[] = [];
+  groups.push({
+    title: t("General layout properties"),
+    id: "General_layout_properties",
+    type: "properties",
+    fields: Object.keys(v8["layout_symbol"]).filter(f => f.startsWith("symbol-"))
+  });
+  groups.push({
+    title: t("Text layout properties"),
+    id: "Text_layout_properties",
+    type: "properties",
+    fields: Object.keys(v8["layout_symbol"]).filter(f => f.startsWith("text-"))
+  });
+  groups.push({
+    title: t("Icon layout properties"),
+    id: "Icon_layout_properties",
+    type: "properties",
+    fields: Object.keys(v8["layout_symbol"]).filter(f => f.startsWith("icon-"))
+  });
+  groups.push({
+    title: t("Text paint properties"),
+    id: "Text_paint_properties",
+    type: "properties",
+    fields: Object.keys(v8["paint_symbol"]).filter(f => f.startsWith("text-"))
+  });
+  groups.push({
+    title: t("Icon paint properties"),
+    id: "Icon_paint_properties",
+    type: "properties",
+    fields: Object.keys(v8["paint_symbol"]).filter(f => f.startsWith("icon-"))
+  });
+  return groups;
 }
 
-function layoutGroups(layerType: LayerSpecification["type"]): {title: string, type: string, fields?: string[]}[] {
+function getLayoutForType(type: LayerSpecification["type"], t: TFunction): MaputnikLayoutGroup[] {
+  if (Object.keys(v8.layer.type.values).indexOf(type) < 0) {
+    return [];
+  }
+  if (type === "symbol") {
+    return getLayoutForSymbolType(t);
+  }
+  const groups: MaputnikLayoutGroup[] = [];
+  if (Object.keys(v8["paint_" + type]).length > 0) {
+    groups.push({
+      title: t("Paint properties"),
+      id: "Paint_properties",
+      type: "properties",
+      fields: Object.keys(v8["paint_" + type]),
+    });
+  }
+  if (Object.keys(v8["layout_" + type]).length > 0) {
+    groups.push({
+      title: t("Layout properties"),
+      id: "Layout_properties",
+      type: "properties",
+      fields: Object.keys(v8["layout_" + type])
+    });
+  }
+  return groups;
+}
+
+// The "Image position" group only shows up for a layer whose source is an
+// `image` source - null for every other layer, in which case layoutGroups
+// below leaves it out entirely.
+//
+// Deliberately takes the raw `mapStyle.sources` (via the `mapStyleSources`
+// prop) rather than the `sources` prop: `sources` is App's fetchSources()
+// cache, built for the Sources/Data modal (source -> the vector layers it
+// contains) and, for an `image` source, populated once and then reused as-is
+// on every later fetchSources() call - so it never picks up coordinate
+// changes made by dragging the gizmo on the map. Reading straight from
+// mapStyle.sources keeps this panel in sync with what's actually on the map
+// (and what gets saved).
+function imageSourceForLayer(layer: LayerSpecification, mapStyleSources: { [key: string]: SourceSpecification }): ImageSourceSpecification | null {
+  const sourceId = (layer as {source?: string}).source;
+  if (!sourceId) return null;
+  const source = mapStyleSources[sourceId];
+  if (!source || source.type !== "image") return null;
+  return source;
+}
+
+function layoutGroups(layerType: LayerSpecification["type"], t: TFunction, imageSource: ImageSourceSpecification | null): { id: string, title: string, type: string, fields?: string[] }[] {
   const layerGroup = {
-    title: 'Layer',
-    type: 'layer'
-  }
+    id: "layer",
+    title: t("Layer"),
+    type: "layer"
+  };
+  const imagePositionGroup = {
+    id: "image_position",
+    title: t("Image position"),
+    type: "image_position"
+  };
   const filterGroup = {
-    title: 'Filter',
-    type: 'filter'
-  }
+    id: "filter",
+    title: t("Filter"),
+    type: "filter"
+  };
   const editorGroup = {
-    title: 'JSON Editor',
-    type: 'jsoneditor'
-  }
-  return [layerGroup, filterGroup]
-    .concat(getLayoutForType(layerType).groups)
-    .concat([editorGroup])
+    id: "jsoneditor",
+    title: t("JSON Editor"),
+    type: "jsoneditor"
+  };
+  const groups = imageSource ? [layerGroup, imagePositionGroup, filterGroup] : [layerGroup, filterGroup];
+  return groups
+    .concat(getLayoutForType(layerType, t))
+    .concat([editorGroup]);
 }
 
-type LayerEditorProps = {
+type LayerEditorInternalProps = {
   layer: LayerSpecification
-  sources: {[key: string]: SourceSpecification}
-  vectorLayers: {[key: string]: any}
-  spec: object
-  onLayerChanged(...args: unknown[]): unknown
+  sources: { [key: string]: SourceSpecification & { layers: string[] } }
+  mapStyleSources: { [key: string]: SourceSpecification }
+  vectorLayers: { [key: string]: any }
+  spec: any
+  onLayerChanged(index: number, layer: LayerSpecification): void
   onLayerIdChange(...args: unknown[]): unknown
-  onMoveLayer(...args: unknown[]): unknown
+  onMoveLayer: OnMoveLayerCallback
   onLayerDestroy(...args: unknown[]): unknown
   onLayerCopy(...args: unknown[]): unknown
   onLayerVisibilityToggle(...args: unknown[]): unknown
+  // Wired to the "Image position" group's editable width/height/rotation
+  // fields (see ImagePositionEditor) - a plain pass-through of App's own
+  // onImageSourceChanged, the same one MapMaplibreGl's gizmo drag calls, so
+  // typing a value here goes through the exact same undoable/saved update
+  // path as dragging the gizmo on the map.
+  onImageSourceChanged?(sourceId: string, source: SourceSpecification): unknown
+  // Backs the "Image position" group's Pivot row and its lock icon -
+  // isImagePivotFixed reads the flag for a given source id (App's style
+  // metadata is the source of truth, see there for why it's not on the
+  // source itself), onImagePivotFixedChanged sets it.
+  isImagePivotFixed?(sourceId: string): boolean
+  onImagePivotFixedChanged?(sourceId: string, fixed: boolean): unknown
   isFirstLayer?: boolean
   isLastLayer?: boolean
   layerIndex: number
-  errors?: any[]
-};
+  errors?: MappedError[]
+} & WithTranslation;
 
 type LayerEditorState = {
-  editorGroups: {[keys:string]: boolean}
+  editorGroups: { [keys: string]: boolean }
 };
 
 /** Layer editor supporting multiple types of layers. */
-export default class LayerEditor extends React.Component<LayerEditorProps, LayerEditorState> {
+class LayerEditorInternal extends React.Component<LayerEditorInternalProps, LayerEditorState> {
   static defaultProps = {
-    onLayerChanged: () => {},
-    onLayerIdChange: () => {},
-    onLayerDestroyed: () => {},
+    onLayerChanged: () => { },
+    onLayerIdChange: () => { },
+    onLayerDestroyed: () => { },
+  };
+
+  constructor(props: LayerEditorInternalProps) {
+    super(props);
+
+    const editorGroups: { [keys: string]: boolean } = {};
+    for (const group of layoutGroups(this.props.layer.type, props.t, imageSourceForLayer(this.props.layer, props.mapStyleSources))) {
+      editorGroups[group.title] = true;
+    }
+
+    this.state = { editorGroups };
   }
 
-  static childContextTypes = {
-    reactIconBase: PropTypes.object
-  }
+  static getDerivedStateFromProps(props: Readonly<LayerEditorInternalProps>, state: LayerEditorState) {
+    const additionalGroups = { ...state.editorGroups };
 
-  constructor(props: LayerEditorProps) {
-    super(props)
-
-    //TODO: Clean this up and refactor into function
-    const editorGroups: {[keys:string]: boolean} = {}
-    layoutGroups(this.props.layer.type).forEach(group => {
-      editorGroups[group.title] = true
-    })
-
-    this.state = { editorGroups }
-  }
-
-  static getDerivedStateFromProps(props: LayerEditorProps, state: LayerEditorState) {
-    const additionalGroups = { ...state.editorGroups }
-
-    getLayoutForType(props.layer.type).groups.forEach(group => {
-      if(!(group.title in additionalGroups)) {
-        additionalGroups[group.title] = true
+    for (const group of getLayoutForType(props.layer.type, props.t)) {
+      if (!(group.title in additionalGroups)) {
+        additionalGroups[group.title] = true;
       }
-    })
+    }
+
+    // Same backfill as above, for the "Image position" group - it's not
+    // tied to the layer type like the layout/paint groups above, but it's
+    // just as dynamic (only appears once an image-source layer is
+    // selected), so it needs the same "default to open the first time it's
+    // seen" treatment.
+    if (imageSourceForLayer(props.layer, props.mapStyleSources)) {
+      const title = props.t("Image position");
+      if (!(title in additionalGroups)) {
+        additionalGroups[title] = true;
+      }
+    }
 
     return {
       editorGroups: additionalGroups
     };
   }
 
-  getChildContext () {
-    return {
-      reactIconBase: {
-        size: 14,
-        color: '#8e8e8e',
-      }
-    }
-  }
 
   changeProperty(group: keyof LayerSpecification | null, property: string, newValue: any) {
     this.props.onLayerChanged(
       this.props.layerIndex,
       changeProperty(this.props.layer, group, property, newValue)
-    )
+    );
   }
 
   onGroupToggle(groupTitle: string, active: boolean) {
     const changedActiveGroups = {
       ...this.state.editorGroups,
       [groupTitle]: active,
-    }
+    };
     this.setState({
       editorGroups: changedActiveGroups
-    })
+    });
   }
 
   renderGroupType(type: string, fields?: string[]): JSX.Element {
-    let comment = ""
-    if(this.props.layer.metadata) {
-      comment = (this.props.layer.metadata as any)['maputnik:comment']
+    let comment = "";
+    if (this.props.layer.metadata) {
+      comment = (this.props.layer.metadata as any)["maputnik:comment"];
     }
-    const {errors, layerIndex} = this.props;
+    const { errors, layerIndex } = this.props;
 
-    const errorData: {[key in LayerSpecification as string]: {message: string}} = {};
+    const errorData: MappedLayerErrors = {};
     errors!.forEach(error => {
       if (
         error.parsed &&
@@ -146,197 +256,236 @@ export default class LayerEditor extends React.Component<LayerEditorProps, Layer
           message: error.parsed.data.message
         };
       }
-    })
+    });
 
     let sourceLayerIds;
     const layer = this.props.layer as Exclude<LayerSpecification, BackgroundLayerSpecification>;
-    if(Object.prototype.hasOwnProperty.call(this.props.sources, layer.source)) {
-      sourceLayerIds = (this.props.sources[layer.source] as any).layers;
+    if (Object.prototype.hasOwnProperty.call(this.props.sources, layer.source)) {
+      sourceLayerIds = this.props.sources[layer.source].layers;
     }
 
-    switch(type) {
-    case 'layer': return <div>
-      <FieldId
-        value={this.props.layer.id}
-        wdKey="layer-editor.layer-id"
-        error={errorData.id}
-        onChange={newId => this.props.onLayerIdChange(this.props.layerIndex, this.props.layer.id, newId)}
-      />
-      <FieldType
-        disabled={true}
-        error={errorData.type}
-        value={this.props.layer.type}
-        onChange={newType => this.props.onLayerChanged(
-          this.props.layerIndex,
-          changeType(this.props.layer, newType)
-        )}
-      />
-      {this.props.layer.type !== 'background' && <FieldSource
-        error={errorData.source}
-        sourceIds={Object.keys(this.props.sources!)}
-        value={this.props.layer.source}
-        onChange={v => this.changeProperty(null, 'source', v)}
-      />
-      }
-      {['background', 'raster', 'hillshade', 'heatmap'].indexOf(this.props.layer.type) < 0 &&
-        <FieldSourceLayer
-          error={errorData['source-layer']}
-          sourceLayerIds={sourceLayerIds}
-          value={(this.props.layer as any)['source-layer']}
-          onChange={v => this.changeProperty(null, 'source-layer', v)}
+    switch (type) {
+      case "layer": return <div>
+        <FieldId
+          value={this.props.layer.id}
+          wdKey="layer-editor.layer-id"
+          error={errorData.id}
+          onChange={newId => this.props.onLayerIdChange(this.props.layerIndex, this.props.layer.id, newId)}
         />
-      }
-      <FieldMinZoom
-        error={errorData.minzoom}
-        value={this.props.layer.minzoom}
-        onChange={v => this.changeProperty(null, 'minzoom', v)}
-      />
-      <FieldMaxZoom
-        error={errorData.maxzoom}
-        value={this.props.layer.maxzoom}
-        onChange={v => this.changeProperty(null, 'maxzoom', v)}
-      />
-      <FieldComment
-        error={errorData.comment}
-        value={comment}
-        onChange={v => this.changeProperty('metadata', 'maputnik:comment', v == ""  ? undefined : v)}
-      />
-    </div>
-    case 'filter': return <div>
-      <div className="maputnik-filter-editor-wrapper">
-        <FilterEditor
-          errors={errorData}
-          filter={(this.props.layer as any).filter}
-          properties={this.props.vectorLayers[(this.props.layer as any)['source-layer']]}
-          onChange={f => this.changeProperty(null, 'filter', f)}
-        />
-      </div>
-    </div>
-    case 'properties':
-      return <PropertyGroup
-        errors={errorData}
-        layer={this.props.layer}
-        groupFields={fields!}
-        spec={this.props.spec}
-        onChange={this.changeProperty.bind(this)}
-      />
-    case 'jsoneditor':
-      return <FieldJson
-        layer={this.props.layer}
-        onChange={(layer) => {
-          this.props.onLayerChanged(
+        <FieldType
+          disabled={true}
+          error={errorData.type}
+          value={this.props.layer.type}
+          onChange={newType => this.props.onLayerChanged(
             this.props.layerIndex,
-            layer
-          );
-        }}
-      />
-    default: return <></>
+            changeType(this.props.layer, newType)
+          )}
+        />
+        {this.props.layer.type !== "background" && <FieldSource
+          error={errorData.source}
+          sourceIds={Object.keys(this.props.sources!)}
+          value={this.props.layer.source}
+          onChange={v => this.changeProperty(null, "source", v)}
+        />
+        }
+        {!NON_SOURCE_LAYERS.includes(this.props.layer.type) &&
+          <FieldSourceLayer
+            error={errorData["source-layer"]}
+            sourceLayerIds={sourceLayerIds}
+            value={(this.props.layer as any)["source-layer"]}
+            onChange={v => this.changeProperty(null, "source-layer", v)}
+          />
+        }
+        <FieldMinZoom
+          error={errorData.minzoom}
+          value={this.props.layer.minzoom}
+          onChange={v => this.changeProperty(null, "minzoom", v)}
+        />
+        <FieldMaxZoom
+          error={errorData.maxzoom}
+          value={this.props.layer.maxzoom}
+          onChange={v => this.changeProperty(null, "maxzoom", v)}
+        />
+        <FieldComment
+          error={errorData.comment}
+          value={comment}
+          onChange={v => this.changeProperty("metadata", "maputnik:comment", v == "" ? undefined : v)}
+        />
+      </div>;
+      case "image_position": {
+        const imageSource = imageSourceForLayer(this.props.layer, this.props.mapStyleSources);
+        if (!imageSource) return <></>;
+        const sourceId = (this.props.layer as {source?: string}).source!;
+        return <ImagePositionEditor
+          sourceId={sourceId}
+          source={imageSource}
+          t={this.props.t}
+          onChange={coordinates => this.props.onImageSourceChanged?.(sourceId, {
+            ...imageSource,
+            coordinates,
+          })}
+          fixedPivot={this.props.isImagePivotFixed?.(sourceId) ?? false}
+          onFixedPivotChange={fixed => this.props.onImagePivotFixedChanged?.(sourceId, fixed)}
+        />;
+      }
+      case "filter": return <div>
+        <div className="maputnik-filter-editor-wrapper">
+          <FilterEditor
+            errors={errorData}
+            filter={(this.props.layer as any).filter}
+            properties={this.props.vectorLayers[(this.props.layer as any)["source-layer"]]}
+            onChange={f => this.changeProperty(null, "filter", f)}
+          />
+        </div>
+      </div>;
+      case "properties":
+        return <PropertyGroup
+          errors={errorData}
+          layer={this.props.layer}
+          groupFields={fields!}
+          spec={this.props.spec}
+          onChange={this.changeProperty.bind(this)}
+        />;
+      case "jsoneditor":
+        return <FieldJson
+          lintType="layer"
+          value={this.props.layer}
+          onChange={(layer: LayerSpecification) => {
+            this.props.onLayerChanged(
+              this.props.layerIndex,
+              layer
+            );
+          }}
+        />;
+      default: return <></>;
     }
   }
 
   moveLayer(offset: number) {
     this.props.onMoveLayer({
       oldIndex: this.props.layerIndex,
-      newIndex: this.props.layerIndex+offset
-    })
+      newIndex: this.props.layerIndex + offset
+    });
   }
 
   render() {
+    const t = this.props.t;
+
     const groupIds: string[] = [];
-    const layerType = this.props.layer.type
-    const groups = layoutGroups(layerType).filter(group => {
-      return !(layerType === 'background' && group.type === 'source')
+    const layerType = this.props.layer.type;
+    const groups = layoutGroups(layerType, t, imageSourceForLayer(this.props.layer, this.props.mapStyleSources)).filter(group => {
+      return !(layerType === "background" && group.type === "source");
     }).map(group => {
-      const groupId = group.title.replace(/ /g, "_");
+      const groupId = group.id;
       groupIds.push(groupId);
       return <LayerEditorGroup
         data-wd-key={group.title}
         id={groupId}
-        key={group.title}
+        key={groupId}
         title={group.title}
         isActive={this.state.editorGroups[group.title]}
         onActiveToggle={this.onGroupToggle.bind(this, group.title)}
       >
         {this.renderGroupType(group.type, group.fields)}
-      </LayerEditorGroup>
-    })
+      </LayerEditorGroup>;
+    });
 
-    const layout = this.props.layer.layout || {}
+    const layout = this.props.layer.layout || {};
 
-    const items: {[key: string]: {text: string, handler: () => void, disabled?: boolean}} = {
+    const items: {
+      [key: string]: {
+        text: string,
+        handler: () => void,
+        disabled?: boolean,
+        wdKey?: string
+      }
+    } = {
       delete: {
-        text: "Delete",
-        handler: () => this.props.onLayerDestroy(this.props.layerIndex)
+        text: t("Delete"),
+        handler: () => this.props.onLayerDestroy(this.props.layerIndex),
+        wdKey: "menu-delete-layer"
       },
       duplicate: {
-        text: "Duplicate",
-        handler: () => this.props.onLayerCopy(this.props.layerIndex)
+        text: t("Duplicate"),
+        handler: () => this.props.onLayerCopy(this.props.layerIndex),
+        wdKey: "menu-duplicate-layer"
       },
       hide: {
-        text: (layout.visibility === "none") ? "Show" : "Hide",
-        handler: () => this.props.onLayerVisibilityToggle(this.props.layerIndex)
+        text: (layout.visibility === "none") ? t("Show") : t("Hide"),
+        handler: () => this.props.onLayerVisibilityToggle(this.props.layerIndex),
+        wdKey: "menu-hide-layer"
       },
       moveLayerUp: {
-        text: "Move layer up",
-        // Not actually used...
+        text: t("Move layer up"),
         disabled: this.props.isFirstLayer,
-        handler: () => this.moveLayer(-1)
+        handler: () => this.moveLayer(-1),
+        wdKey: "menu-move-layer-up"
       },
       moveLayerDown: {
-        text: "Move layer down",
-        // Not actually used...
+        text: t("Move layer down"),
         disabled: this.props.isLastLayer,
-        handler: () => this.moveLayer(+1)
+        handler: () => this.moveLayer(+1),
+        wdKey: "menu-move-layer-down"
       }
-    }
+    };
 
     function handleSelection(id: string, event: React.SyntheticEvent) {
       event.stopPropagation();
       items[id].handler();
     }
 
-    return <section className="maputnik-layer-editor"
-      role="main"
-      aria-label="Layer editor"
-    >
-      <header>
-        <div className="layer-header">
-          <h2 className="layer-header__title">
-            Layer: {formatLayerId(this.props.layer.id)}
-          </h2>
-          <div className="layer-header__info">
-            <Wrapper
-              className='more-menu'
-              onSelection={handleSelection}
-              closeOnSelection={false}
-            >
-              <Button id="skip-target-layer-editor" data-wd-key="skip-target-layer-editor" className='more-menu__button' title="Layer options">
-                <MdMoreVert className="more-menu__button__svg" />
-              </Button>
-              <Menu>
-                <ul className="more-menu__menu">
-                  {Object.keys(items).map((id) => {
-                    const item = items[id];
-                    return <li key={id}>
-                      <MenuItem value={id} className='more-menu__menu__item'>
-                        {item.text}
-                      </MenuItem>
-                    </li>
-                  })}
-                </ul>
-              </Menu>
-            </Wrapper>
-          </div>
-        </div>
-
-      </header>
-      <Accordion
-        allowMultipleExpanded={true}
-        allowZeroExpanded={true}
-        preExpanded={groupIds}
+    return <IconContext.Provider value={{ size: "14px", color: "#8e8e8e" }}>
+      <section className="maputnik-layer-editor"
+        role="main"
+        aria-label={t("Layer editor")}
+        data-wd-key="layer-editor"
       >
-        {groups}
-      </Accordion>
-    </section>
+        <header data-wd-key="layer-editor.header">
+          <div className="layer-header">
+            <h2 className="layer-header__title">
+              {t("Layer")}: {formatLayerId(this.props.layer.id)}
+            </h2>
+            <div className="layer-header__info">
+              <Wrapper
+                className='more-menu'
+                onSelection={(id, event) => handleSelection(id as string, event)}
+                closeOnSelection={false}
+              >
+                <Button
+                  id="skip-target-layer-editor"
+                  data-wd-key="skip-target-layer-editor"
+                  className='more-menu__button'
+                  title={"Layer options"}>
+                  <MdMoreVert className="more-menu__button__svg" />
+                </Button>
+                <Menu>
+                  <ul className="more-menu__menu">
+                    {Object.keys(items).map((id) => {
+                      const item = items[id];
+                      return <li key={id}>
+                        <MenuItem value={id} className='more-menu__menu__item' data-wd-key={item.wdKey}>
+                          {item.text}
+                        </MenuItem>
+                      </li>;
+                    })}
+                  </ul>
+                </Menu>
+              </Wrapper>
+            </div>
+          </div>
+
+        </header>
+        <Accordion
+          allowMultipleExpanded={true}
+          allowZeroExpanded={true}
+          preExpanded={groupIds}
+        >
+          {groups}
+        </Accordion>
+      </section>
+    </IconContext.Provider>;
   }
 }
+
+const LayerEditor = withTranslation()(LayerEditorInternal);
+export default LayerEditor;

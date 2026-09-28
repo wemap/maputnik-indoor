@@ -1,3 +1,5 @@
+@use "vars";
+
 .maputnik-popup-layer {
   display: flex;
   flex-direction: row;
@@ -11,29 +13,46 @@
 
 .maputnik-popup-layer__label {
   display: block;
-  color: $color-lowgray;
+  color: vars.$color-lowgray;
   cursor: pointer;
   user-select: none;
   line-height: 1.2;
-  padding: $margin-2;
-  padding-top: $margin-1;
-  padding-bottom: $margin-1;
+  padding: vars.$margin-2;
+  padding-top: vars.$margin-1;
+  padding-bottom: vars.$margin-1;
 }
 
 .maputnik-popup-layer-id {
-  padding-left: $margin-2;
-  padding-right: 1.6em;
-  background-color: $color-midgray;
-  color: $color-white;
+  padding-left: vars.$margin-2;
+  padding-right: vars.$margin-2;
+  background-color: vars.$color-midgray;
+  color: vars.$color-white;
 }
 
 .maputnik-feature-property-popup {
   max-height: calc(50vh - 40px); /* toolbar height: 40px */
   overflow-y: auto;
+  // Keeps this div's own box (and, once the list is long enough, its
+  // vertical scrollbar) clear of the popup's close button, which
+  // maplibre-gl positions as position:absolute at the popup content's
+  // top-right corner - since this div otherwise starts flush with that
+  // same corner, its scrollbar would render directly behind/under the
+  // button. Margin (not padding) is what actually moves the div's own box
+  // - and therefore where its scrollbar is drawn - away from there;
+  // padding here would just leave blank space inside the div without
+  // relocating the scrollbar itself. Only pushed down (not narrowed): the
+  // button ends up in its own clear strip above the table, which is
+  // enough on its own - the div's row and the button's row no longer
+  // share any vertical space, so the table keeps its original full width
+  // below that strip. Sized to the button's own height (~26px) plus a
+  // couple pixels of buffer, verified against the real close-button/
+  // content CSS in an isolated reproduction rather than guessed.
+  margin-top: 28px;
   .maputnik-input-block {
     margin: 0;
-    margin-left: $margin-2;
-    margin-top: $margin-2;
+    margin-left: vars.$margin-2;
+    margin-right: vars.$margin-2;
+    margin-top: vars.$margin-2;
   }
 }
 
@@ -42,6 +61,7 @@
 }
 
 .maputnik-popup-table-cell {
-  color: $color-lowgray;
-  padding-left: $margin-2;
+  color: vars.$color-lowgray;
+  padding-left: vars.$margin-2;
+  padding-right: vars.$margin-2;
 }
