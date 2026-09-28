@@ -79,6 +79,8 @@ type LayerListItemProps = {
   layerId: string
   layerType: string
   isSelected?: boolean
+  /** Hidden inside a collapsed group: not a drop target, not shifted. */
+  isHidden?: boolean
   visibility?: VisibilitySpecification
   className?: string
   tagColor?: string
@@ -92,6 +94,7 @@ type LayerListItemProps = {
 const LayerListItem = React.forwardRef<HTMLLIElement, LayerListItemProps>((props, ref) => {
   const {
     isSelected = false,
+    isHidden = false,
     visibility = "visible",
     tagColor,
     onLayerCopy = () => { },
@@ -107,12 +110,14 @@ const LayerListItem = React.forwardRef<HTMLLIElement, LayerListItemProps>((props
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: props.layerId });
+  } = useSortable({ id: props.layerId, disabled: isHidden });
 
-  const style = {
+  // Hidden rows get no inline transform/opacity at all, so the collapsed
+  // CSS class fully applies to them.
+  const style: React.CSSProperties = isHidden ? {} : {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.5 : 1,
+    opacity: isDragging ? 0.5 : (visibility === "none" ? 0.4 : 1),
   };
 
   const visibilityAction = visibility === "visible" ? "show" : "hide";
@@ -128,7 +133,7 @@ const LayerListItem = React.forwardRef<HTMLLIElement, LayerListItemProps>((props
           refObject.current = node;
         }
       }}
-      style={{...style, opacity: visibility === "none" ? 0.4 : 1}}
+      style={style}
       id={props.id}
       onClick={_e => props.onLayerSelect(props.layerIndex)}
       onContextMenu={e => { e.preventDefault(); onContextMenuLayer(props.layerIndex, e); }}

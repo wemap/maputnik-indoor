@@ -30,7 +30,7 @@ import ModalGlobalState from "./modals/ModalGlobalState";
 
 import {downloadGlyphsMetadata, downloadSpriteMetadata} from "../libs/metadata";
 import style from "../libs/style";
-import { duplicateLayerAsType, createImageRasterLayer, buildDuplicateId } from "../libs/layer";
+import { duplicateLayerAsType, createImageRasterLayer, buildDuplicateId, selectedIndexAfterMove } from "../libs/layer";
 import { cleanIndoorLevelBlocks } from "../libs/legacy-level";
 import { addSource, changeSource } from "../libs/source";
 import { undoMessages, redoMessages } from "../libs/diffmessage";
@@ -533,10 +533,11 @@ export default class App extends React.Component<any, AppState> {
     newIndex = clamp(newIndex, 0, layers.length-1);
     if(oldIndex === newIndex) return;
 
-    if (oldIndex === this.state.selectedLayerIndex) {
-      this.setState({
-        selectedLayerIndex: newIndex
-      });
+    // Keep the selection on the same layer, also when some other layer is
+    // moved across it (not only when the selected one itself moves).
+    const selectedLayerIndex = selectedIndexAfterMove(this.state.selectedLayerIndex, oldIndex, newIndex);
+    if (selectedLayerIndex !== this.state.selectedLayerIndex) {
+      this.setState({ selectedLayerIndex });
     }
 
     layers = layers.slice(0);

@@ -137,50 +137,127 @@ export function groupDropId(firstLayerIndex: number, firstLayerId: string): stri
   return `${GROUP_DROP_ID_PREFIX}${firstLayerIndex}:${firstLayerId}`;
 }
 
-/** Given a synthetic group drop id, returns the index at which a dragged
- * layer should be inserted to land right before that group (i.e. between it
- * and the previous group/layer). Returns null if the id isn't a group drop id.
+/** One row of the layers list as the user actually sees it: either a group
+ * header (for groups of 2+ layers sharing a prefix) or a visible layer row.
+ * Layers hidden inside a collapsed group are NOT part of this list - they
+ * are neither drop targets nor taken into account for the drag spacing.
  */
-export function resolveGroupDropIndex(id: string): number | null {
-  if (!id.startsWith(GROUP_DROP_ID_PREFIX)) {
-    return null;
-  }
-  const rest = id.slice(GROUP_DROP_ID_PREFIX.length);
-  const sepIdx = rest.indexOf(":");
-  const idxStr = sepIdx === -1 ? rest : rest.slice(0, sepIdx);
-  const parsed = parseInt(idxStr, 10);
-  return Number.isNaN(parsed) ? null : parsed;
+export type LayerListEntry =
+  | { kind: "header"; id: string; key: string; start: number; end: number; collapsed: boolean }
+  | { kind: "layer"; id: string; index: number };
+
+/** Stable key identifying a group across layer moves: its prefix plus its
+ * rank among the groups sharing that prefix (a prefix normally appears in a
+ * single group, the rank only disambiguates the rare split case). Unlike the
+ * group's first layer index, this doesn't change when some unrelated layer
+ * is moved above the group.
+ */
+export function layerGroupKeys(groups: {id: string}[][]): string[] {
+  const seen = new Map<string, number>();
+  return groups.map(group => {
+    const prefix = layerPrefix(group[0].id);
+    const rank = seen.get(prefix) ?? 0;
+    seen.set(prefix, rank + 1);
+    return `${prefix}#${rank}`;
+  });
 }
 
-/** Builds the ordered list of sortable ids for the layers list, inserting a
- * synthetic id before every group header (groups of 2+ layers sharing a
- * common prefix) so that dropping directly on a group boundary works the
- * same way as dropping on a regular layer.
+/** Builds the visible entries of the layers list (see {@link LayerListEntry}).
+ * `isCollapsed` receives a group key from {@link layerGroupKeys}.
  */
-export function buildLayerListSortableIds(layers: LayerSpecification[]): string[] {
-  const ids: string[] = [];
+export function buildLayerListEntries(
+  layers: LayerSpecification[],
+  isCollapsed: (groupKey: string) => boolean,
+  selectedLayerIndex: number,
+): LayerListEntry[] {
+  const groups: LayerSpecification[][] = [];
   for (let i = 0; i < layers.length; i++) {
-    const layer = layers[i];
     const previousLayer = layers[i - 1];
-    const isGroupStart = !previousLayer || layerPrefix(previousLayer.id) !== layerPrefix(layer.id);
-
-    if (isGroupStart) {
-      let groupLength = 1;
-      for (let j = i + 1; j < layers.length; j++) {
-        if (layerPrefix(layers[j].id) === layerPrefix(layer.id)) {
-          groupLength += 1;
-        } else {
-          break;
-        }
-      }
-      if (groupLength > 1) {
-        ids.push(groupDropId(i, layer.id));
-      }
+    if (previousLayer && layerPrefix(previousLayer.id) === layerPrefix(layers[i].id)) {
+      groups[groups.length - 1].push(layers[i]);
+    } else {
+      groups.push([layers[i]]);
     }
-
-    ids.push(layer.id);
   }
-  return ids;
+  const keys = layerGroupKeys(groups);
+
+  const entries: LayerListEntry[] = [];
+  let idx = 0;
+  groups.forEach((group, g) => {
+    const start = idx;
+    const end = idx + group.length - 1;
+    const isGroup = group.length > 1;
+    const collapsed = isGroup && isCollapsed(keys[g]);
+    if (isGroup) {
+      entries.push({ kind: "header", id: groupDropId(start, group[0].id), key: keys[g], start, end, collapsed });
+    }
+    group.forEach(layer => {
+      if (!collapsed || idx === selectedLayerIndex) {
+        entries.push({ kind: "layer", id: layer.id, index: idx });
+      }
+      idx += 1;
+    });
+  });
+  return entries;
+}
+
+/** Resolves a drag & drop in the layers list into an `{oldIndex, newIndex}`
+ * move in the layers array, based on the order the user saw when dropping
+ * (the dragged row moved from its entry to the `over` entry). What the user
+ * sees above the dropped row decides where it lands:
+ * - nothing above: top of the list;
+ * - a layer row: right after that layer;
+ * - an expanded group header: right before the group's first layer;
+ * - a collapsed group header: right after the whole group (its hidden layers
+ *   are visually "inside" the header), unless the row below is one of that
+ *   group's layers still shown (selected) or the dragged layer itself belongs
+ *   to that group - then right before the group's first layer.
+ * Returns null when the drop doesn't change anything.
+ */
+export function resolveLayerListDrop(
+  entries: LayerListEntry[],
+  activeId: string,
+  overId: string,
+): {oldIndex: number; newIndex: number} | null {
+  const from = entries.findIndex(e => e.id === activeId);
+  const to = entries.findIndex(e => e.id === overId);
+  if (from === -1 || to === -1 || from === to) return null;
+  const active = entries[from];
+  if (active.kind !== "layer") return null;
+
+  const order = entries.slice();
+  order.splice(to, 0, order.splice(from, 1)[0]);
+  const pos = order.indexOf(active);
+  const prev = order[pos - 1];
+  const next = order[pos + 1];
+
+  // Insert the dragged layer right before layer index `target` (in the
+  // original array, target === layers.length meaning "at the end").
+  let target: number;
+  if (!prev) {
+    target = 0;
+  } else if (prev.kind === "layer") {
+    target = prev.index + 1;
+  } else {
+    const nextInGroup = next?.kind === "layer" && next.index >= prev.start && next.index <= prev.end;
+    const activeInGroup = active.index >= prev.start && active.index <= prev.end;
+    target = (!prev.collapsed || nextInGroup || activeInGroup) ? prev.start : prev.end + 1;
+  }
+
+  const oldIndex = active.index;
+  const newIndex = target > oldIndex ? target - 1 : target;
+  return newIndex === oldIndex ? null : {oldIndex, newIndex};
+}
+
+/** Where the selected layer ends up after moving `oldIndex` to `newIndex`,
+ * so the selection stays on the same layer even when another one moved
+ * across it.
+ */
+export function selectedIndexAfterMove(selected: number, oldIndex: number, newIndex: number): number {
+  if (selected === oldIndex) return newIndex;
+  if (oldIndex < selected && selected <= newIndex) return selected - 1;
+  if (newIndex <= selected && selected < oldIndex) return selected + 1;
+  return selected;
 }
 
 /** Builds the companion `raster` layer an `image` source needs in order to

@@ -5,10 +5,10 @@ import lodash from "lodash";
 import {
   DndContext,
   PointerSensor,
-  useSensor,
-  useSensors,
   closestCenter,
   type DragEndEvent,
+  type SensorDescriptor,
+  type SensorOptions,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -23,11 +23,10 @@ import ModalAdd from "./modals/ModalAdd";
 import type {LayerSpecification, SourceSpecification} from "maplibre-gl";
 import generateUniqueId from "../libs/document-uid";
 import {
-  findClosestCommonPrefix,
   layerPrefix,
-  groupDropId,
-  resolveGroupDropIndex,
-  buildLayerListSortableIds,
+  layerGroupKeys,
+  buildLayerListEntries,
+  resolveLayerListDrop,
   DUPLICATE_TYPE_LABELS,
 } from "../libs/layer";
 import { type WithTranslation, withTranslation } from "react-i18next";
@@ -46,6 +45,7 @@ type LayerListContainerProps = {
   onLayerTagColor(index: number, color: string | null): unknown
   sources: Record<string, SourceSpecification & {layers: string[]}>;
   errors: MappedError[]
+  onMoveLayer: OnMoveLayerCallback
 };
 type LayerListContainerInternalProps = LayerListContainerProps & WithTranslation;
 
@@ -235,6 +235,11 @@ class LayerListContainerInternal extends React.Component<LayerListContainerInter
   };
   selectedItemRef: React.RefObject<any>;
   scrollContainerRef: React.RefObject<HTMLElement | null>;
+  // Static descriptor (no hook in a class component) - same as
+  // useSensors(useSensor(PointerSensor, {...})), kept as a stable reference.
+  sensors: SensorDescriptor<SensorOptions>[] = [
+    { sensor: PointerSensor, options: { activationConstraint: { distance: 5 } } },
+  ];
 
   constructor(props: LayerListContainerInternalProps) {
     super(props);
@@ -290,22 +295,14 @@ class LayerListContainerInternal extends React.Component<LayerListContainerInter
   };
 
   toggleLayers = () => {
-    let idx = 0;
-
     const newGroups: {[key:string]: boolean} = {};
 
-    this.groupedLayers().forEach(layers => {
-      const groupPrefix = layerPrefix(layers[0].id);
-      const lookupKey = [groupPrefix, idx].join("-");
-
-
+    const groups = this.groupedLayers();
+    const keys = layerGroupKeys(groups);
+    groups.forEach((layers, g) => {
       if (layers.length > 1) {
-        newGroups[lookupKey] = this.state.areAllGroupsExpanded;
+        newGroups[keys[g]] = this.state.areAllGroupsExpanded;
       }
-
-      layers.forEach((_layer) => {
-        idx += 1;
-      });
     });
 
     this.setState({
@@ -338,8 +335,11 @@ class LayerListContainerInternal extends React.Component<LayerListContainerInter
     return groups;
   }
 
-  toggleLayerGroup(groupPrefix: string, idx: number) {
-    const lookupKey = [groupPrefix, idx].join("-");
+  // Collapse state is keyed by a stable group key (see layerGroupKeys), not
+  // by the group's first layer index: that index shifts whenever a layer is
+  // moved above the group, which used to make groups open/close by
+  // themselves after a drag & drop.
+  toggleLayerGroup(lookupKey: string) {
     const newGroups = { ...this.state.collapsedGroups };
     if(lookupKey in this.state.collapsedGroups) {
       newGroups[lookupKey] = !this.state.collapsedGroups[lookupKey];
@@ -351,10 +351,25 @@ class LayerListContainerInternal extends React.Component<LayerListContainerInter
     });
   }
 
-  isCollapsed(groupPrefix: string, idx: number) {
-    const collapsed = this.state.collapsedGroups[[groupPrefix, idx].join("-")];
+  isCollapsed = (lookupKey: string) => {
+    const collapsed = this.state.collapsedGroups[lookupKey];
     return collapsed === undefined ? true : collapsed;
+  };
+
+  // Rows as currently displayed (headers + visible layers). Used both as the
+  // sortable items and to resolve a drop, so both always agree.
+  listEntries() {
+    return buildLayerListEntries(this.props.layers, this.isCollapsed, this.props.selectedLayerIndex);
   }
+
+  onDragEnd = (event: DragEndEvent) => {
+    const {active, over} = event;
+    if (!over) return;
+    const move = resolveLayerListDrop(this.listEntries(), String(active.id), String(over.id));
+    if (move) {
+      this.props.onMoveLayer(move);
+    }
+  };
 
   shouldComponentUpdate (nextProps: LayerListContainerProps, nextState: LayerListContainerState) {
     // Always update on state change
@@ -430,23 +445,29 @@ class LayerListContainerInternal extends React.Component<LayerListContainerInter
     const listItems: JSX.Element[] = [];
     let idx = 0;
     const layersByGroup = this.groupedLayers();
-    layersByGroup.forEach(layers => {
+    const groupKeys = layerGroupKeys(layersByGroup);
+    const entries = this.listEntries();
+    const headerIds = entries.filter(e => e.kind === "header").map(e => e.id);
+    let headerCount = 0;
+    layersByGroup.forEach((layers, g) => {
       const groupPrefix = layerPrefix(layers[0].id);
+      const groupKey = groupKeys[g];
+      const groupCollapsed = layers.length > 1 && this.isCollapsed(groupKey);
       if(layers.length > 1) {
         const grp = <LayerListGroup
-          dropId={groupDropId(idx, layers[0].id)}
+          dropId={headerIds[headerCount++]}
           data-wd-key={[groupPrefix, idx].join("-")}
           aria-controls={layers.map(l => l.key).join(" ")}
-          key={`group-${groupPrefix}-${idx}`}
+          key={`group-${groupKey}`}
           title={groupPrefix}
-          isActive={!this.isCollapsed(groupPrefix, idx) || idx === this.props.selectedLayerIndex}
-          onActiveToggle={this.toggleLayerGroup.bind(this, groupPrefix, idx)}
+          isActive={!groupCollapsed || idx === this.props.selectedLayerIndex}
+          onActiveToggle={this.toggleLayerGroup.bind(this, groupKey)}
         />;
         listItems.push(grp);
       }
 
       layers.forEach((layer, idxInGroup) => {
-        const groupIdx = findClosestCommonPrefix(this.props.layers, idx);
+        const isHidden = groupCollapsed && idx !== this.props.selectedLayerIndex;
 
         const layerError = this.props.errors.find(error => {
           return (
@@ -464,7 +485,7 @@ class LayerListContainerInternal extends React.Component<LayerListContainerInter
         const tagColor = (layer as any).metadata?.["maputnik:tag-color"] || undefined;
         const listItem = <LayerListItem
           className={classnames({
-            "maputnik-layer-list-item-collapsed": layers.length > 1 && this.isCollapsed(groupPrefix, groupIdx) && idx !== this.props.selectedLayerIndex,
+            "maputnik-layer-list-item-collapsed": isHidden,
             "maputnik-layer-list-item-group-last": idxInGroup == layers.length - 1 && layers.length > 1,
             "maputnik-layer-list-item--error": !!layerError
           })}
@@ -475,6 +496,7 @@ class LayerListContainerInternal extends React.Component<LayerListContainerInter
           layerType={layer.type}
           visibility={(layer.layout || {}).visibility}
           isSelected={idx === this.props.selectedLayerIndex}
+          isHidden={isHidden}
           tagColor={tagColor}
           onLayerSelect={this.props.onLayerSelect}
           onLayerDestroy={this.props.onLayerDestroy?.bind(this)}
@@ -499,103 +521,74 @@ class LayerListContainerInternal extends React.Component<LayerListContainerInter
         onClose={() => this.setState({ picker: null })}
       />
       <section
-      className="maputnik-layer-list"
-      data-wd-key="layer-list"
-      role="complementary"
-      aria-label={t("Layers list")}
-      ref={this.scrollContainerRef}
-    >
-      <ModalAdd
-        key={this.state.keys.add}
-        layers={this.props.layers}
-        sources={this.props.sources}
-        isOpen={this.state.isOpen.add}
-        onOpenToggle={this.toggleModal.bind(this, "add")}
-        onLayersChange={this.props.onLayersChange}
-      />
-      <header className="maputnik-layer-list-header" data-wd-key="layer-list.header">
-        <span className="maputnik-layer-list-header-title">{t("Layers")}</span>
-        <span className="maputnik-space" />
-        <div className="maputnik-default-property">
-          <div className="maputnik-multibutton">
-            <button
-              id="skip-target-layer-list"
-              data-wd-key="skip-target-layer-list"
-              onClick={this.toggleLayers}
-              className="maputnik-button">
-              {this.state.areAllGroupsExpanded === true ?
-                t("Collapse")
-                :
-                t("Expand")
-              }
-            </button>
-          </div>
-        </div>
-        <div className="maputnik-default-property">
-          <div className="maputnik-multibutton">
-            <button
-              onClick={this.toggleModal.bind(this, "add")}
-              data-wd-key="layer-list:add-layer"
-              className="maputnik-button maputnik-button-selected">
-              {t("Add Layer")}
-            </button>
-          </div>
-        </div>
-      </header>
-      <div
-        role="navigation"
+        className="maputnik-layer-list"
+        data-wd-key="layer-list"
+        role="complementary"
         aria-label={t("Layers list")}
+        ref={this.scrollContainerRef}
       >
-        <ul className="maputnik-layer-list-container">
-          {listItems}
-        </ul>
-      </div>
-    </section></>
+        <ModalAdd
+          key={this.state.keys.add}
+          layers={this.props.layers}
+          sources={this.props.sources}
+          isOpen={this.state.isOpen.add}
+          onOpenToggle={this.toggleModal.bind(this, "add")}
+          onLayersChange={this.props.onLayersChange}
+        />
+        <header className="maputnik-layer-list-header" data-wd-key="layer-list.header">
+          <span className="maputnik-layer-list-header-title">{t("Layers")}</span>
+          <span className="maputnik-space" />
+          <div className="maputnik-default-property">
+            <div className="maputnik-multibutton">
+              <button
+                id="skip-target-layer-list"
+                data-wd-key="skip-target-layer-list"
+                onClick={this.toggleLayers}
+                className="maputnik-button">
+                {this.state.areAllGroupsExpanded === true ?
+                  t("Collapse")
+                  :
+                  t("Expand")
+                }
+              </button>
+            </div>
+          </div>
+          <div className="maputnik-default-property">
+            <div className="maputnik-multibutton">
+              <button
+                onClick={this.toggleModal.bind(this, "add")}
+                data-wd-key="layer-list:add-layer"
+                className="maputnik-button maputnik-button-selected">
+                {t("Add Layer")}
+              </button>
+            </div>
+          </div>
+        </header>
+        <div
+          role="navigation"
+          aria-label={t("Layers list")}
+        >
+          <DndContext sensors={this.sensors} collisionDetection={closestCenter} onDragEnd={this.onDragEnd}>
+            <SortableContext items={entries.map(e => e.id)} strategy={verticalListSortingStrategy}>
+              <ul className="maputnik-layer-list-container">
+                {listItems}
+              </ul>
+            </SortableContext>
+          </DndContext>
+        </div>
+      </section></>;
   }
 }
 
 const LayerListContainer = withTranslation()(LayerListContainerInternal);
 
-type LayerListProps = LayerListContainerProps & {
-  onMoveLayer: OnMoveLayerCallback
-};
+type LayerListProps = LayerListContainerProps;
 
 export type { LayerListContainerProps };
 
-const LayerList: React.FC<LayerListProps> = (props) => {
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const {active, over} = event;
-    if (!over) return;
-
-    const oldIndex = props.layers.findIndex(layer => layer.id === active.id);
-    if (oldIndex === -1) return;
-
-    // Dropping directly on a group header means "place it right before this
-    // group", i.e. at the same position as dropping onto that group's first
-    // layer - this is what makes it possible to insert a layer exactly
-    // between two (possibly collapsed) groups.
-    const overId = String(over.id);
-    const groupIndex = resolveGroupDropIndex(overId);
-    const newIndex = groupIndex !== null
-      ? groupIndex
-      : props.layers.findIndex(layer => layer.id === overId);
-
-    if (newIndex !== -1 && oldIndex !== newIndex) {
-      props.onMoveLayer({oldIndex, newIndex});
-    }
-  };
-
-  const sortableIds = buildLayerListSortableIds(props.layers);
-
-  return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-      <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-        <LayerListContainer {...props} />
-      </SortableContext>
-    </DndContext>
-  );
-};
+// The drag & drop context now lives inside the container: the sortable
+// items (and the drop resolution) depend on which groups are collapsed,
+// which is container state.
+const LayerList: React.FC<LayerListProps> = (props) => <LayerListContainer {...props} />;
 
 export default LayerList;
