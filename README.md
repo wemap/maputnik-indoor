@@ -121,3 +121,4 @@ Read more about the MapLibre Sponsorship Program at https://maplibre.org/sponsor
 
 Maputnik is [licensed under MIT](LICENSE) and is Copyright (c) Lukas Martinelli and Maplibre contributors.
 As contributor please take extra care of not violating any Mapbox trademarks. Do not get inspired by other map studios and make your own decisions for a good style editor.
+
