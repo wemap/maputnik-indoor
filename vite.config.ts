@@ -21,7 +21,6 @@ export default defineConfig(({ mode }) => ({
       cypress: true,
       requireEnv: false,
       nycrcPath: "./.nycrc.json",
-      forceBuildInstrument: true, //Instrument the source code for cypress runs
     }),
   ],
   base: "/",
