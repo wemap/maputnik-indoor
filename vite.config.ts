@@ -7,6 +7,10 @@ export default defineConfig(({ mode }) => ({
   server: {
     port: 8888,
   },
+  build: {
+    // vite-plugin-istanbul turns this back on when it runs during `vite build`.
+    sourcemap: false,
+  },
   plugins: [
     replace({
       preventAssignment: true,
@@ -17,11 +21,25 @@ export default defineConfig(({ mode }) => ({
       },
     }),
     react(),
-    istanbul({
+    // Coverage instrumentation is for the Cypress dev server only.
+    // During a production build the plugin forces a .js.map that exceeds Cloudflare's 25 MiB limit.
+    mode === "production" ? null : istanbul({
       cypress: true,
       requireEnv: false,
       nycrcPath: "./.nycrc.json",
     }),
+    {
+      name: "drop-sourcemaps",
+      apply: "build",
+      enforce: "post",
+      generateBundle(_options, bundle) {
+        for (const fileName of Object.keys(bundle)) {
+          if (fileName.endsWith(".map")) {
+            delete bundle[fileName];
+          }
+        }
+      },
+    },
   ],
   base: "/",
   define: {
