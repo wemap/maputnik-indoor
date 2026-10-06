@@ -30,6 +30,19 @@ function stripLevelClauses(filter: any): any {
   return filter;
 }
 
+/** `["all", X]` -> `X` (strictly equivalent: an "all" of one condition is
+ * that condition, and MapLibre's legacy/expression syntax detection gives
+ * the same result with or without the wrapper). Nested single "all"s are
+ * unwrapped too. `["all"]` alone (= no condition) is kept as is. If X is an
+ * "any"/"none", it becomes the top-level combinator, which the Filter tab
+ * can then edit instead of showing "Nested filters are not supported". */
+function unwrapSingleAll(filter: any): any {
+  while (Array.isArray(filter) && filter[0] === "all" && filter.length === 2 && Array.isArray(filter[1])) {
+    filter = filter[1];
+  }
+  return filter;
+}
+
 /** Strips any baked level-visibility clause from every "indoor-"-prefixed
  * layer's filter. Called once when a style is opened, so a file coming from
  * an older export (or from wemap's original tool) behaves in the editor
@@ -43,7 +56,13 @@ export function cleanIndoorLevelBlocks<T extends StyleSpecification>(style: T): 
     if (!layer.id.startsWith("indoor") || !Array.isArray(filter)) {
       return layer;
     }
-    return { ...layer, filter: stripLevelClauses(filter) };
+    const cleaned = stripLevelClauses(filter);
+    // Only layers that actually had a level block removed get the unwrap
+    // below, so nothing else in the file changes just by opening it.
+    if (JSON.stringify(cleaned) === JSON.stringify(filter)) {
+      return layer;
+    }
+    return { ...layer, filter: unwrapSingleAll(cleaned) };
   });
   return { ...style, layers };
 }

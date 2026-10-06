@@ -10,6 +10,7 @@ import InputUrl from "../InputUrl";
 
 import style from "../../libs/style";
 import publicStyles from "../../config/styles.json";
+import { fileNameFromUrl } from "../../libs/file-meta";
 
 type PublicStyleProps = {
   url: string
@@ -111,7 +112,7 @@ class ModalOpenInternal extends React.Component<ModalOpenInternalProps, ModalOpe
 
         const mapStyle = style.ensureStyleValidity(body);
         console.log("Loaded style ", mapStyle.id);
-        this.props.onStyleOpen(mapStyle);
+        this.props.onStyleOpen(mapStyle, null, fileNameFromUrl(styleUrl));
         this.onOpenToggle();
       })
       .catch((err) => {
@@ -194,7 +195,7 @@ class ModalOpenInternal extends React.Component<ModalOpenInternalProps, ModalOpe
         return;
       }
       mapStyle = style.ensureStyleValidity(mapStyle);
-      this.props.onStyleOpen(mapStyle);
+      this.props.onStyleOpen(mapStyle, null, file.name);
       this.onOpenToggle();
     };
     reader.onerror = e => console.log(e.target);

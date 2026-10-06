@@ -11,6 +11,7 @@ import InputButton from "../InputButton";
 import Modal from "./Modal";
 import style from "../../libs/style";
 import { bakeIndoorLevelBlocks } from "../../libs/legacy-level";
+import { fileBaseName } from "../../libs/file-meta";
 import fieldSpecAdditional from "../../libs/field-spec-additional";
 import type {OnStyleChangedCallback, StyleSpecificationWithId} from "../../libs/definitions";
 
@@ -26,6 +27,10 @@ type ModalExportInternalProps = {
   onOpenToggle(): void
   onSetFileHandle(fileHandle: FileSystemFileHandle | null): unknown
   fileHandle: FileSystemFileHandle | null
+  /** Name of the file being edited, if known (see libs/file-meta.ts). */
+  fileName: string | null
+  /** Called once the style has actually been written to a file. */
+  onStyleSaved(fileName: string, savedStyle: StyleSpecificationWithId): unknown
 } & WithTranslation;
 
 
@@ -39,7 +44,14 @@ class ModalExportInternal extends React.Component<ModalExportInternalProps> {
     );
   }
 
+  // Default name (without extension) offered when saving/exporting: the
+  // current file's name first, so a reload or "Save as" doesn't silently
+  // switch to the style's internal "name" field; that field (then the style
+  // id) is only a fallback when no file is known at all.
   exportName() {
+    if (this.props.fileName) {
+      return fileBaseName(this.props.fileName);
+    }
     if (this.props.mapStyle.name) {
       return Slugify(this.props.mapStyle.name, {
         replacement: "_",
@@ -109,6 +121,7 @@ class ModalExportInternal extends React.Component<ModalExportInternalProps> {
       const blob = new Blob([tokenStyle], {type: "application/json;charset=utf-8"});
       const exportName = this.exportName();
       saveAs(blob, exportName + ".json");
+      this.props.onStyleSaved(exportName + ".json", this.props.mapStyle);
       return;
     }
 
@@ -122,6 +135,7 @@ class ModalExportInternal extends React.Component<ModalExportInternalProps> {
     const writable = await fileHandle.createWritable();
     await writable.write(tokenStyle);
     await writable.close();
+    this.props.onStyleSaved(fileHandle.name, this.props.mapStyle);
     this.props.onOpenToggle();
   }
 
@@ -135,6 +149,7 @@ class ModalExportInternal extends React.Component<ModalExportInternalProps> {
     const writable = await fileHandle.createWritable();
     await writable.write(tokenStyle);
     await writable.close();
+    this.props.onStyleSaved(fileHandle.name, this.props.mapStyle);
     this.props.onOpenToggle();
   }
 

@@ -32,6 +32,7 @@ import {downloadGlyphsMetadata, downloadSpriteMetadata} from "../libs/metadata";
 import style from "../libs/style";
 import { duplicateLayerAsType, createImageRasterLayer, buildDuplicateId, selectedIndexAfterMove } from "../libs/layer";
 import { cleanIndoorLevelBlocks } from "../libs/legacy-level";
+import { loadFileMeta, saveFileMeta } from "../libs/file-meta";
 import { addSource, changeSource } from "../libs/source";
 import { undoMessages, redoMessages } from "../libs/diffmessage";
 import { createStyleStore, type IStyleStore } from "../libs/store/style-store-factory";
@@ -128,12 +129,20 @@ type AppState = {
     codeEditor: boolean
   }
   fileHandle: FileSystemFileHandle | null
+  /** Name of the file being edited (opened from / last saved to), null if
+   * none is known yet - see libs/file-meta.ts. */
+  fileName: string | null
+  /** The style as it was when last opened/saved: the style has unsaved
+   * changes whenever `mapStyle` isn't this exact object (undoing back to it
+   * makes it clean again, since the revision store keeps the same objects). */
+  cleanStyle: StyleSpecificationWithId | null
 };
 
 export default class App extends React.Component<any, AppState> {
   revisionStore: RevisionStore;
   styleStore: IStyleStore | null = null;
   layerWatcher: LayerWatcher;
+  baseTitle: string = document.title;
 
   constructor(props: any) {
     super(props);
@@ -178,6 +187,8 @@ export default class App extends React.Component<any, AppState> {
         debugToolbox: false,
       },
       fileHandle: null,
+      fileName: null,
+      cleanStyle: null,
     };
 
     this.layerWatcher = new LayerWatcher({
@@ -297,6 +308,31 @@ export default class App extends React.Component<any, AppState> {
   componentWillUnmount() {
     window.removeEventListener("keydown", this.handleKeyPress);
   }
+
+  isStyleDirty() {
+    return this.state.mapStyle !== this.state.cleanStyle;
+  }
+
+  componentDidUpdate(_prevProps: any, prevState: AppState) {
+    if (prevState.mapStyle === this.state.mapStyle
+      && prevState.fileName === this.state.fileName
+      && prevState.cleanStyle === this.state.cleanStyle) {
+      return;
+    }
+    const dirty = this.isStyleDirty();
+    if (this.state.fileName) {
+      saveFileMeta(this.state.mapStyle.id, { name: this.state.fileName, dirty });
+      // File name first: browser tabs are narrow, so that's the part that
+      // must survive truncation to tell two sessions apart.
+      document.title = `${dirty ? "● " : ""}${this.state.fileName} — ${this.baseTitle}`;
+    } else {
+      document.title = this.baseTitle;
+    }
+  }
+
+  onStyleSaved = (fileName: string, savedStyle: StyleSpecificationWithId) => {
+    this.setState({ fileName, cleanStyle: savedStyle });
+  };
 
   saveStyle(snapshotStyle: StyleSpecificationWithId) {
     this.styleStore?.save(snapshotStyle);
@@ -489,6 +525,16 @@ export default class App extends React.Component<any, AppState> {
     const zoom = newStyle?.zoom;
     const center = newStyle?.center;
 
+    // On startup (style restored from the browser's storage), get back the
+    // file name and saved/unsaved state it had before the reload.
+    if (opts.initialLoad) {
+      const restoredFileMeta = loadFileMeta(newStyle.id);
+      this.setState({
+        fileName: restoredFileMeta?.name ?? null,
+        cleanStyle: restoredFileMeta && !restoredFileMeta.dirty ? newStyle : null,
+      });
+    }
+
     this.setState({
       mapStyle: newStyle,
       dirtyMapStyle: dirtyMapStyle,
@@ -677,11 +723,17 @@ export default class App extends React.Component<any, AppState> {
     }
   };
 
-  openStyle = (styleObj: StyleSpecificationWithId, fileHandle: FileSystemFileHandle | null) => {
-    this.setState({fileHandle: fileHandle});
+  openStyle = (styleObj: StyleSpecificationWithId, fileHandle: FileSystemFileHandle | null, fileName?: string | null) => {
     styleObj = this.setDefaultValues(styleObj);
     styleObj = cleanIndoorLevelBlocks(styleObj);
     this.onStyleChanged(styleObj);
+    // The just-opened style is the reference "saved" state (the load-time
+    // clean-ups above don't count as unsaved changes).
+    this.setState({
+      fileHandle: fileHandle,
+      fileName: fileName ?? fileHandle?.name ?? null,
+      cleanStyle: styleObj,
+    });
   };
 
   async fetchSources() {
@@ -1035,6 +1087,8 @@ export default class App extends React.Component<any, AppState> {
       onStyleOpen={this.onStyleChanged}
       onSetMapState={this.setMapState}
       onToggleModal={(modal: keyof AppState["isOpen"]) => this.toggleModal(modal)}
+      fileName={this.state.fileName}
+      isDirty={!!this.state.fileName && this.isStyleDirty()}
     />;
 
     const codeEditor = this.state.isOpen.codeEditor ? <CodeEditor
@@ -1120,6 +1174,8 @@ export default class App extends React.Component<any, AppState> {
         onOpenToggle={() => this.toggleModal("export")}
         fileHandle={this.state.fileHandle}
         onSetFileHandle={this.onSetFileHandle}
+        fileName={this.state.fileName}
+        onStyleSaved={this.onStyleSaved}
       />
       <ModalOpen
         isOpen={this.state.isOpen.open}

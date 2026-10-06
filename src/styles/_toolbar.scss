@@ -155,3 +155,26 @@
     border-color: vars.$color-lowgray;
   }
 }
+
+// Name of the file being edited, after "Help": informative only (no hover,
+// no click), separated from the actions by a thin rule.
+.maputnik-toolbar-filename {
+  cursor: default;
+  color: #8e8e8e;
+  white-space: nowrap;
+  border-left: 1px solid #3a3a3a;
+  margin-left: 6px;
+
+  &:hover {
+    background-color: transparent;
+  }
+
+  svg {
+    margin-right: 5px;
+  }
+
+  &__dirty {
+    color: #ffa94d;
+    margin-left: 6px;
+  }
+}

@@ -10,8 +10,10 @@ import {
   MdFindInPage,
   MdSave,
   MdPublic,
-  MdCode
+  MdCode,
+  MdInsertDriveFile
 } from "react-icons/md";
+import { middleTruncate } from "../libs/file-meta";
 import pkgJson from "../../package.json";
 import { withTranslation, type WithTranslation } from "react-i18next";
 import type { OnStyleChangedCallback } from "../libs/definitions";
@@ -102,6 +104,10 @@ type AppToolbarInternalProps = {
   onSetMapState(mapState: MapState): unknown
   mapState?: MapState
   renderer?: string
+  /** Name of the file being edited, shown after "Help" (null: nothing shown). */
+  fileName?: string | null
+  /** Unsaved changes since the file was opened/saved: orange dot. */
+  isDirty?: boolean
 } & WithTranslation;
 
 class AppToolbarInternal extends React.Component<AppToolbarInternalProps> {
@@ -271,6 +277,18 @@ class AppToolbarInternal extends React.Component<AppToolbarInternalProps> {
             <MdHelpOutline />
             <IconText>{t("Help")}</IconText>
           </ToolbarLink>
+
+          {this.props.fileName && (
+            <span
+              className="maputnik-toolbar-link maputnik-toolbar-filename"
+              data-wd-key="nav:filename"
+              title={this.props.fileName + (this.props.isDirty ? " (unsaved changes)" : "")}
+            >
+              <MdInsertDriveFile />
+              <IconText>{middleTruncate(this.props.fileName)}</IconText>
+              {this.props.isDirty && <span className="maputnik-toolbar-filename__dirty">●</span>}
+            </span>
+          )}
         </div>
       </div>
     </nav>;
