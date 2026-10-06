@@ -11,7 +11,7 @@ import InputButton from "../InputButton";
 import Modal from "./Modal";
 import style from "../../libs/style";
 import { bakeIndoorLevelBlocks } from "../../libs/legacy-level";
-import { fileBaseName } from "../../libs/file-meta";
+import { fileBaseName, indoorExportFileName } from "../../libs/file-meta";
 import fieldSpecAdditional from "../../libs/field-spec-additional";
 import type {OnStyleChangedCallback, StyleSpecificationWithId} from "../../libs/definitions";
 
@@ -75,7 +75,7 @@ class ModalExportInternal extends React.Component<ModalExportInternalProps> {
       )
     );
     const blob = new Blob([tokenStyle], {type: "application/json;charset=utf-8"});
-    saveAs(blob, this.exportName() + "_legacy.json");
+    saveAs(blob, indoorExportFileName(this.exportName()));
   }
 
   createHtml() {

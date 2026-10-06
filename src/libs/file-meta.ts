@@ -51,10 +51,17 @@ export function fileNameFromUrl(url: string): string | null {
   }
 }
 
-/** File name without its ".json" extension (nor a "_legacy" suffix, so that
- * re-exporting a legacy file doesn't stack "_legacy_legacy"). */
+/** File name without its ".json" extension. */
 export function fileBaseName(fileName: string): string {
-  return fileName.replace(/\.json$/i, "").replace(/_legacy$/i, "");
+  return fileName.replace(/\.json$/i, "");
+}
+
+/** Name of the "Indoor" export file for a given base name: "<base>_indoor.json".
+ * An existing "_indoor" (or older "_legacy") suffix is dropped first, so
+ * re-exporting from an exported file doesn't stack "_indoor_indoor". Only
+ * applied to this export - a normal Save keeps the file name as it is. */
+export function indoorExportFileName(baseName: string): string {
+  return baseName.replace(/_(indoor|legacy)$/i, "") + "_indoor.json";
 }
 
 /** Shortens a long name in the middle, keeping its end (which usually
