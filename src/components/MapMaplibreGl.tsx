@@ -22,17 +22,7 @@ import "@maplibre/maplibre-gl-geocoder/dist/maplibre-gl-geocoder.css";
 import { withTranslation, type WithTranslation } from "react-i18next";
 import i18next from "i18next";
 import { Protocol } from "pmtiles";
-
-function applyLevelFilter(style: StyleSpecification, level: number | null): StyleSpecification {
-  if (level === null) return style;
-  const lf: any = ["any", ["==", ["get", "level"], String(level)], ["all", ["has", "min_level"], ["has", "max_level"], [">=", level, ["get", "min_level"]], ["<=", level, ["get", "max_level"]]], ["!", ["has", "level"]]];
-  const layers = style.layers.map((layer: any) => {
-    if (!layer.source) return layer;
-    const orig = layer.filter ?? null;
-    return {...layer, filter: orig ? ["all", orig, lf] : lf};
-  });
-  return {...style, layers} as StyleSpecification;
-}
+import { applyLevelPreview, applyLevelToLayer, isIndoorPreviewLayer, withLevelClause } from "../libs/level-preview";
 
 // Custom cursors for hovering the image gizmo (move/resize/rotate) - round
 // badge icons (a filled circle behind a white glyph, supplied by the user
@@ -251,9 +241,8 @@ function buildInspectStyle(originalMapStyle: StyleSpecification, coloredLayers: 
       else if (l.type === "symbol") { paintProps["text-color"] = color; paintProps["icon-color"] = color; }
       const origFilter = l.filter ?? null;
       let layerFilter = origFilter;
-      if (activeLevel !== null) {
-        const lf: any = ["any", ["==", ["get", "level"], String(activeLevel)], ["all", ["has", "min_level"], ["has", "max_level"], [">=", activeLevel, ["get", "min_level"]], ["<=", activeLevel, ["get", "max_level"]]], ["!", ["has", "level"]]];
-        layerFilter = origFilter ? ["all", origFilter, lf] : lf;
+      if (activeLevel !== null && isIndoorPreviewLayer(l.id, l.source)) {
+        layerFilter = withLevelClause(origFilter, activeLevel);
       }
       return { id: l.id + "_inspect", source: l.source, type: l.type, ...(l["source-layer"] ? {"source-layer": l["source-layer"]} : {}), ...(layerFilter ? {filter: layerFilter} : {}), paint: paintProps, layout: l.type === "symbol" ? {visibility: "visible"} : {} };
     });
@@ -261,12 +250,8 @@ function buildInspectStyle(originalMapStyle: StyleSpecification, coloredLayers: 
   const allColoredLayers = [...coloredLayers, ...missingLayers];
   const highlightLayer = colorHighlightedLayer(highlightedLayer);
   if (highlightLayer) {
-    if (activeLevel !== null) {
-      const lf: any = ["any", ["==", ["get", "level"], String(activeLevel)], ["all", ["has", "min_level"], ["has", "max_level"], [">=", activeLevel, ["get", "min_level"]], ["<=", activeLevel, ["get", "max_level"]]], ["!", ["has", "level"]]];
-      const orig = (highlightLayer as any).filter ?? null;
-      (highlightLayer as any).filter = orig ? ["all", orig, lf] : lf;
-    }
-    allColoredLayers.push(highlightLayer as any);
+    // Scoped by the original layer id (highlight layers are "<id>_highlight").
+    allColoredLayers.push(applyLevelToLayer(highlightLayer as any, activeLevel, highlightedLayer!.id));
   }
 
   return { ...originalMapStyle, sources, layers: [backgroundLayer].concat(allColoredLayers as LayerSpecification[]) };
@@ -348,6 +333,7 @@ class MapMaplibreGlInternal extends React.Component<MapMaplibreGlInternalProps, 
   };
   container: HTMLDivElement | null = null;
   _levelControl: LevelControl | null = null;
+  _containerResizeObserver: ResizeObserver | null = null;
   // Aspect ratio (width/height) used for the default size of a pending image
   // placement, updated asynchronously once the image itself has loaded.
   // Falls back to 1 (square) until then, or if it never loads in time - see
@@ -699,7 +685,7 @@ class MapMaplibreGlInternal extends React.Component<MapMaplibreGlInternalProps, 
       // (and catches the final position) right after the drag ends.
       if (!this.props.inspectModeEnabled && !this._activeGizmoDrag) {
         const activeLevel = this._levelControl?._activeLevel ?? null;
-        const filtered = applyLevelFilter(styleWithTokens, activeLevel);
+        const filtered = applyLevelPreview(styleWithTokens, activeLevel);
         map.setStyle(filtered, {diff: true});
       }
       map.showTileBoundaries = this.props.options?.showTileBoundaries!;
@@ -752,6 +738,22 @@ class MapMaplibreGlInternal extends React.Component<MapMaplibreGlInternalProps, 
     const protocol = new Protocol({metadata: true});
     MapLibreGl.addProtocol("pmtiles",protocol.tile);
     const map = new MapLibreGl.Map(mapOpts);
+
+    // If the container had no size yet when the map was created (layout not
+    // settled, typical on a production build), MapLibre falls back to a
+    // 400x300 canvas and ignores its ResizeObserver's first callback - so the
+    // real size can be missed for good. Watch the container ourselves and
+    // resize whenever the canvas doesn't match it.
+    const syncCanvasSize = () => {
+      const canvas = map.getCanvas();
+      const el = this.container;
+      if (!el || el.clientWidth === 0 || el.clientHeight === 0) return;
+      if (canvas.clientWidth !== el.clientWidth || canvas.clientHeight !== el.clientHeight) map.resize();
+    };
+    this._containerResizeObserver = new ResizeObserver(syncCanvasSize);
+    this._containerResizeObserver.observe(this.container!);
+    requestAnimationFrame(syncCanvasSize);
+    map.once("load", syncCanvasSize);
 
     const mapViewChange = () => {
       const center = map.getCenter();
@@ -834,7 +836,7 @@ class MapMaplibreGlInternal extends React.Component<MapMaplibreGlInternalProps, 
           const inspectStyle = buildInspectStyle(styleWithTokens, [], this.props.highlightedLayer, level);
           map.setStyle(inspectStyle, {diff: true});
         } else {
-          const filtered = applyLevelFilter(styleWithTokens, level);
+          const filtered = applyLevelPreview(styleWithTokens, level);
           map.setStyle(filtered, {diff: true});
         }
       };
@@ -1024,6 +1026,8 @@ class MapMaplibreGlInternal extends React.Component<MapMaplibreGlInternalProps, 
 
   componentWillUnmount() {
     window.removeEventListener("mouseup", this.onWindowMouseUp);
+    this._containerResizeObserver?.disconnect();
+    this._containerResizeObserver = null;
   }
 
   onLayerSelectById = (id: string) => {
